@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout Repository
+    - name: Checkout Code
       uses: actions/checkout@v4
 
     - name: Setup Node.js
@@ -18,23 +18,19 @@ jobs:
       with:
         node-version: '20'
 
-    - name: Setup Java JDK
-      uses: actions/setup-java@v4
-      with:
-        distribution: 'temurin'
-        java-version: '17'
-
-    - name: Install & Configure Capacitor
+    - name: Install & Configure Project
       run: |
-        echo '{"name": "mathwarrior", "version": "1.0.0"}' > package.json
+        # Erstelle package.json, falls nicht vorhanden
+        echo '{"name": "mathwarrior", "version": "1.0.0", "dependencies": {}}' > package.json
+        # Installiere notwendige Tools direkt
         npm install @capacitor/core @capacitor/cli @capacitor/android
+        # Capacitor Setup
         npx cap init MathWarrior com.simon.mathwarrior --web-dir .
         npx cap add android
 
-    - name: Build APK mit Gradle
+    - name: Build APK
       working-directory: ./android
       run: |
-        chmod +x gradlew
         ./gradlew assembleDebug
 
     - name: Upload APK
