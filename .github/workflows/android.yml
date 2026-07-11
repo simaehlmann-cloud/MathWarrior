@@ -8,7 +8,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
     - name: Checkout Code
       uses: actions/checkout@v4
@@ -20,17 +19,18 @@ jobs:
 
     - name: Install & Configure Project
       run: |
-        # Erstelle package.json, falls nicht vorhanden
+        # Erstelle package.json
         echo '{"name": "mathwarrior", "version": "1.0.0", "dependencies": {}}' > package.json
-        # Installiere notwendige Tools direkt
+        # Installiere alles lokal
         npm install @capacitor/core @capacitor/cli @capacitor/android
-        # Capacitor Setup
+        # Capacitor initialisieren
         npx cap init MathWarrior com.simon.mathwarrior --web-dir .
         npx cap add android
 
     - name: Build APK
-      working-directory: ./android
       run: |
+        cd android
+        chmod +x gradlew
         ./gradlew assembleDebug
 
     - name: Upload APK
