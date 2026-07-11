@@ -1,6 +1,5 @@
 name: Build Android APK
 
-# Der Build startet automatisch bei jedem Push oder kann manuell gestartet werden
 on:
   push:
     branches: [ main ]
@@ -26,9 +25,8 @@ jobs:
         java-version: '17'
 
     - name: Install & Configure Capacitor
-      # Initialisiert das Projekt und packt deine Web-Dateien in ein Android-Projekt
       run: |
-        npm init -y
+        echo '{"name": "mathwarrior", "version": "1.0.0"}' > package.json
         npm install @capacitor/core @capacitor/cli @capacitor/android
         npx cap init MathWarrior com.simon.mathwarrior --web-dir .
         npx cap add android
