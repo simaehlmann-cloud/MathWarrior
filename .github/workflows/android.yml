@@ -17,14 +17,20 @@ jobs:
       with:
         node-version: '20'
 
-    - name: Install & Configure Project
+    - name: Prepare Folder Structure
       run: |
-        # Erstelle package.json
+        # Wir erstellen einen Unterordner 'www' für die Web-Dateien
+        mkdir www
+        # Kopiere index.html, manifest.json und das Icon in den neuen Ordner
+        cp index.html manifest.json image.png www/
+        # Erstelle eine einfache Konfigurationsdatei
         echo '{"name": "mathwarrior", "version": "1.0.0", "dependencies": {}}' > package.json
-        # Installiere alles lokal
+
+    - name: Install & Configure Capacitor
+      run: |
         npm install @capacitor/core @capacitor/cli @capacitor/android
-        # Capacitor initialisieren
-        npx cap init MathWarrior com.simon.mathwarrior --web-dir .
+        # Jetzt zeigen wir auf den neuen Ordner 'www'
+        npx cap init MathWarrior com.simon.mathwarrior --web-dir www
         npx cap add android
 
     - name: Build APK
