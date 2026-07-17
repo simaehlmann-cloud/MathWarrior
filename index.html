@@ -1,0 +1,2047 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>MathWarrior: Ultimate Touch Edition</title>
+    <meta name="theme-color" content="#111111">
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+    
+    <style>
+        /* =========================================
+           BASIS-STYLING
+        ========================================= */
+        * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
+        body { margin: 0; padding: 0; background-color: #111; color: white; display: flex; justify-content: center; align-items: center; height: 100svh; overflow: hidden; }
+        #game-container { width: 100%; max-width: 600px; height: 100svh; max-height: 850px; background: #222; position: relative; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        
+        /* =========================================
+           SCREENS & OVERLAYS
+        ========================================= */
+        .screen { position: absolute; width: 100%; height: 100%; display: none; flex-direction: column; align-items: center; justify-content: center; padding: 20px; text-align: center; z-index: 10; background: #222; }
+        .active { display: flex; }
+        
+        /* =========================================
+           BUTTONS & CONTROLS
+        ========================================= */
+        button { background: #ff4757; color: white; border: none; padding: 12px 24px; font-size: 18px; margin: 8px; cursor: pointer; border-radius: 8px; font-weight: bold; transition: 0.1s; box-shadow: 0 4px 0 #cf2131; }
+        button:active { transform: translateY(2px); box-shadow: none; }
+        button:disabled { opacity: 0.3; cursor: not-allowed; box-shadow: none !important; transform: none !important; }
+        
+        .load-btn { background: #2ecc71; box-shadow: 0 4px 0 #219a52; }
+        .pause-btn { background: #eccc68; color: #111; box-shadow: 0 4px 0 #b38f2e; padding: 6px 12px; font-size: 14px; margin: 0; }
+        .btn-shop { background: #3498db; box-shadow: 0 4px 0 #2471a3; }
+        .btn-wheel { background: #f39c12; box-shadow: 0 4px 0 #b9770e; }
+        .btn-highscore { background: #9b59b6; box-shadow: 0 4px 0 #76448a; }
+        
+        .mute-toggle { background: #4b5563; box-shadow: 0 3px 0 #374151; padding: 8px 12px; font-size: 16px; margin: 0; border-radius: 20px; }
+        .global-mute { position: absolute; top: 15px; right: 15px; border-radius: 50%; z-index: 100; }
+
+        select { font-size: 18px; padding: 10px; border-radius: 8px; background: #2f3542; color: white; border: 2px solid #ffd32a; margin: 10px; width: 80%; max-width: 300px; text-align: center; }
+        h1 { color: #ffd32a; font-size: 38px; margin-bottom: 5px; text-shadow: 2px 2px 0px #000; letter-spacing: 1px; }
+        .artwork { font-size: 60px; margin: 10px 0; animation: bounce 2s infinite ease-in-out; }
+        
+        /* =========================================
+           GAMEPLAY SCREEN & UI
+        ========================================= */
+        #game-screen { display: none; background: #111; padding: 0; position: relative; }
+        #game-screen.active { display: block; }
+        #ui-bar { width: 100%; display: flex; justify-content: space-between; align-items: center; font-size: 14px; font-weight: bold; background: rgba(0,0,0,0.7); padding: 10px 15px; position: absolute; top: 0; left: 0; z-index: 20; border-bottom: 2px solid #ffd32a; }
+        
+        #lives-display { transition: transform 0.2s; display: inline-block; }
+        .lives-hit { animation: heartDistress 0.4s ease-in-out 3; color: #ff4757; }
+
+        #wave-progress-container { width: 100%; height: 4px; background: #111; position: absolute; top: 41px; left: 0; z-index: 21; }
+        #wave-progress-bar { width: 10%; height: 100%; background: #ffd32a; transition: width 0.3s ease; }
+
+        /* =========================================
+           SCENERY & PARTICLES & DIALOGS
+        ========================================= */
+        #scenery { width: 100%; height: 42%; position: relative; overflow: hidden; }
+        #sky-decor { position: absolute; top: 60px; right: 40px; font-size: 40px; }
+        
+        /* Animierter Laufboden - läuft nur zwischen den Kämpfen (siehe .walking-Klasse), nicht während des Kampfes */
+        #ground { 
+            width: 100%; height: 40px; position: absolute; bottom: 0; left: 0; z-index: 2;
+            background-image: repeating-linear-gradient(90deg, rgba(0,0,0,0.15) 0px, rgba(0,0,0,0.15) 20px, transparent 20px, transparent 40px);
+            background-size: 40px 100%;
+        }
+        #scenery.walking #ground { animation: scrollGround 0.5s linear infinite; }
+        
+        #particles-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 3; }
+        .particle { position: absolute; font-size: 20px; animation: floatUp 1.5s linear forwards; }
+        
+        #monster-speech { position: absolute; top: 70px; right: 20px; background: white; color: black; padding: 6px 12px; border-radius: 12px; font-size: 13px; font-weight: bold; display: none; z-index: 10; border: 2px solid #ffd32a; box-shadow: 0 4px 10px rgba(0,0,0,0.5); max-width: 150px; text-align: center; }
+        #monster-speech::after { content: ''; position: absolute; bottom: -8px; left: 20px; border-width: 8px 8px 0; border-style: solid; border-color: white transparent; }
+
+        #ninja-speech { position: absolute; top: 70px; left: 20px; background: white; color: black; padding: 6px 12px; border-radius: 12px; font-size: 13px; font-weight: bold; display: none; z-index: 10; border: 2px solid #4cd137; box-shadow: 0 4px 10px rgba(0,0,0,0.5); max-width: 150px; text-align: center; }
+        #ninja-speech::after { content: ''; position: absolute; bottom: -8px; left: 20px; border-width: 8px 8px 0; border-style: solid; border-color: white transparent; }
+
+        #scenery-object { position: absolute; bottom: 35px; right: 40px; font-size: 45px; z-index: 1; opacity: 1; transition: none; }
+        #scenery.walking #scenery-object { animation: walkPastScenery 1.1s linear infinite; }
+        
+        /* Zweites, weiter entferntes Hintergrund-Objekt (kleiner, blasser, langsamer) für mehr Tiefe */
+        #scenery-object-far { position: absolute; bottom: 72px; right: 140px; font-size: 26px; z-index: 0; opacity: 0.5; }
+        #scenery.walking #scenery-object-far { animation: walkPastSceneryFar 1.9s linear infinite; }
+        
+        /* Welt-spezifische Dekorationen am Spielcharakter */
+        .ninja-decor-stink { position: absolute; top: -55%; left: 50%; transform: translateX(-10%); font-size: 0.45em; filter: hue-rotate(90deg) saturate(3) brightness(1.2); animation: stinkPuff 1.6s infinite ease-in-out; z-index: 3; }
+        .ninja-decor-parrot { position: absolute; top: -30%; right: -28%; font-size: 0.45em; transform: scaleX(-1); z-index: 3; }
+        .ninja-ufo { position: absolute; bottom: -32%; left: 50%; transform: translateX(-50%); font-size: 1.05em; z-index: 2; }
+        #battle-indicator { position: absolute; top: 55px; left: 50%; transform: translateX(-50%); background: rgba(255,71,87,0.9); color: white; padding: 4px 14px; border-radius: 20px; font-size: 13px; font-weight: bold; z-index: 25; letter-spacing: 1px; box-shadow: 0 2px 6px rgba(0,0,0,0.4); }
+        
+        #boss-vignette { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 40; pointer-events: none; }
+        #boss-vignette.active { display: block; animation: vignettePulse 2s infinite ease-in-out; }
+
+        /* =========================================
+           CHARAKTERE
+        ========================================= */
+        #stage { width: 100%; height: 100%; position: relative; display: flex; align-items: flex-end; justify-content: space-between; padding-bottom: 25px; padding-left: 40px; padding-right: 40px; }
+        .character { font-size: 60px; position: relative; z-index: 5; bottom: -10px; transition: opacity 0.3s, filter 0.3s, transform 0.3s; }
+        
+        #shield-bubble { position: absolute; font-size: 80px; bottom: -10px; left: -10px; display: none; opacity: 0.6; pointer-events: none; z-index: 6; }
+        
+        #ninja-emoji { position: relative; display: inline-block; }
+        .wing { position: absolute; top: 15%; font-size: 0.65em; opacity: 0.9; z-index: -1; }
+        .wing-left { left: -30%; transform: scaleX(-1) rotate(-15deg); }
+        .wing-right { right: -30%; transform: rotate(-15deg); }
+        .dive-mask { position: absolute; left: 50%; z-index: 2; }
+        .dive-bubbles { position: absolute; bottom: 0; right: -25%; font-size: 0.45em; opacity: 0.8; }
+        
+        .enemy-scale-0 { transform: scale(0.8); }
+        .enemy-scale-1 { transform: scale(1.0); }
+        .enemy-scale-2 { transform: scale(1.2); }
+        
+        .boss-character { filter: drop-shadow(0px 0px 15px #ff4757) !important; animation: bossPulse 1s infinite alternate ease-in-out; }
+        #boss-hp-container { display: none; position: absolute; top: 95px; left: 15px; background: rgba(0,0,0,0.6); padding: 4px 8px; border-radius: 8px; font-size: 14px; font-weight: bold; z-index: 15; border: 1px solid #ff4757; text-align: center; }
+        
+        .flying-ninja { animation: flyMotion 1s infinite alternate ease-in-out !important; bottom: 40px !important; }
+        .swimming-ninja { animation: swimMotion 1.5s infinite alternate ease-in-out !important; bottom: 5px !important; }
+        .ninja-running { animation: ninjaRun 0.6s infinite alternate ease-in-out; }
+        .ninja-attacking { animation: ninjaAttack 0.4s ease-in-out; }
+        .ninja-hit { animation: ninjaHit 0.5s ease-out; }
+        
+        .enemy-enter { animation: enemyEnter 0.6s forwards ease-out; }
+        .enemy-die { animation: enemyDie 0.6s forwards ease-in; }
+        .enemy-attack { animation: enemyAttack 0.5s ease-in-out; }
+        #hit-effect { position: absolute; font-size: 60px; display: none; z-index: 7; }
+        
+        #item-effect { position: absolute; top: 40%; left: 50%; font-size: 90px; z-index: 30; display: none; pointer-events: none; text-align: center; }
+        #item-effect.item-pop { display: block; animation: itemPop 0.6s ease-out forwards; }
+        
+        .timer-hourglass-flash { background-color: #ffd32a !important; box-shadow: 0 0 10px 2px #ffd32a; }
+        
+        .pause-btn.pause-pending { background: #ff4757; animation: timerPulse 0.5s infinite alternate; }
+
+        /* =========================================
+           INTERFACE & VIRTUAL KEYBOARD ZONE
+        ========================================= */
+        #input-zone { height: 58%; background: #1e272e; border-top: 4px solid #3d3d3d; display: flex; flex-direction: column; align-items: center; justify-content: space-between; padding: 8px 10px; position: relative; z-index: 20; }
+        #question { font-size: 24px; color: #ffd32a; font-weight: bold; text-shadow: 2px 2px 0 #000; text-align: center; margin-top: 2px; }
+        #timer-container { width: 90%; height: 8px; background: #111; border-radius: 4px; overflow: hidden; border: 1px solid #444; margin: 4px 0; }
+        #timer-bar { width: 100%; height: 100%; background: #4cd137; transition: width 0.1s linear; }
+        
+        #touch-display-area { font-size: 28px; width: 160px; height: 42px; background: #2f3542; border: 3px solid #ffd32a; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-weight: bold; color: white; margin-bottom: 4px; box-shadow: inset 0 2px 5px rgba(0,0,0,0.5); }
+        #touch-display-area.correct-flash { background: #2e7d32; border-color: #4caf50; }
+        #touch-display-area.wrong-flash { background: #c62828; border-color: #ef5350; }
+
+        .numpad-container { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; width: 100%; max-width: 280px; }
+        .num-btn { background: #4b5563; box-shadow: 0 3px 0 #1f2937; padding: 10px; font-size: 20px; margin: 0; border-radius: 8px; color: white; border: none;}
+        .num-btn:active { background: #6b7280; }
+        .action-btn { background: #ffd32a; color: #111; box-shadow: 0 3px 0 #b38f2e; font-size: 18px; }
+        .action-btn:active { background: #ffeaa7; }
+
+        .item-row { display: flex; justify-content: center; gap: 8px; width: 100%; margin-top: 4px; }
+        .item-btn { background: #3d3d3d; font-size: 12px; padding: 5px 10px; margin: 0; box-shadow: 0 3px 0 #111; flex: 1; max-width: 90px; }
+
+        /* =========================================
+           OVERLAYS, INFO & SHOP
+        ========================================= */
+        #pause-overlay, #wheel-overlay, #reward-overlay, #next-level-overlay, #about-overlay { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 50; flex-direction: column; align-items: center; justify-content: center; }
+        #promotion-overlay { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(to bottom, #1a0a2e, #4a0e6b); z-index: 50; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 20px; }
+        #promotion-emoji { font-size: 90px; transition: font-size 0.4s ease; animation: bounce 1.5s infinite ease-in-out; }
+        #promotion-title { color: #ffd32a; margin: 10px 0; text-shadow: 2px 2px 0 #000; }
+        #promotion-text { font-size: 16px; line-height: 1.5; max-width: 85%; color: white; }
+        .wheel-graphic { font-size: 80px; margin: 20px; transition: transform 3s cubic-bezier(0.1, 0.8, 0.3, 1); }
+        .reward-box { background: #2f3542; padding: 25px; border-radius: 12px; border: 3px solid #ffd32a; max-width: 85%; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.6); position: relative; }
+
+        .shop-section { width: 100%; font-weight: bold; color: #ffd32a; margin-top: 5px; text-align: left; padding-left: 5%; }
+        .shop-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; width: 95%; margin-bottom: 10px; }
+        .shop-item { background: rgba(255,255,255,0.05); padding: 8px; border-radius: 8px; border: 2px solid #444; cursor: pointer; font-size: 13px; }
+        .shop-item.owned { border-color: #4cd137; background: rgba(76, 209, 55, 0.08); }
+        .shop-item.equipped { border-color: #ffd32a; background: rgba(255, 211, 42, 0.15); font-weight: bold; }
+        .shop-item.unaffordable { opacity: 0.4; cursor: not-allowed; }
+        
+        ol { width: 85%; text-align: left; background: rgba(0,0,0,0.6); padding: 15px 35px; border-radius: 12px; }
+        li { font-size: 15px; margin: 5px 0; }
+        
+        /* Flags Toggle */
+        .flag-toggle { position: absolute; top: 10px; left: 10px; display: flex; gap: 8px; font-size: 24px; cursor: pointer; z-index: 60; }
+        .flag-btn { opacity: 0.5; transition: 0.2s; }
+        .flag-btn.active-flag { opacity: 1; transform: scale(1.1); }
+
+        /* Timer-Warnfarben */
+        .timer-warning { background-color: #f39c12 !important; }
+        .timer-critical { background-color: #ff4757 !important; animation: timerPulse 0.4s infinite alternate; }
+        .timer-critical-boss { animation: timerPulseBoss 0.25s infinite alternate !important; }
+
+        /* Highscore Klassen-Tabs */
+        .tab-btn { background: #4b5563; box-shadow: 0 3px 0 #374151; padding: 8px 14px; font-size: 14px; margin: 0; }
+        .tab-btn.active-tab { background: #ffd32a; color: #111; box-shadow: 0 3px 0 #b38f2e; }
+        
+        /* =========================================
+           ANIMATIONS
+        ========================================= */
+        @keyframes scrollGround { 0% { background-position: 0 0; } 100% { background-position: -40px 0; } }
+        @keyframes walkPastScenery { 0% { transform: translateX(120px); opacity: 0; } 15% { opacity: 1; } 85% { opacity: 1; } 100% { transform: translateX(-300px); opacity: 0; } }
+        @keyframes walkPastSceneryFar { 0% { transform: translateX(140px); opacity: 0; } 15% { opacity: 0.5; } 85% { opacity: 0.5; } 100% { transform: translateX(-260px); opacity: 0; } }
+        @keyframes stinkPuff { 0%, 100% { opacity: 0.55; transform: translate(-10%, 0) scale(1); } 50% { opacity: 0.9; transform: translate(-10%, -5px) scale(1.15); } }
+        @keyframes wheelShake { 0%, 100% { transform: translate(0,0); } 20%, 60% { transform: translate(-8px, 0); } 40%, 80% { transform: translate(8px, 0); } }
+        .wheel-error-shake { animation: wheelShake 0.4s ease-in-out; }
+        @keyframes screenShake { 0%, 100% { transform: translate(0, 0); } 10%, 50%, 90% { transform: translate(-4px, 2px); } 30%, 70% { transform: translate(4px, -2px); } }
+        .shake-effect { animation: screenShake 0.3s ease-in-out; }
+        @keyframes heartDistress { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.3); } }
+        @keyframes bounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+        @keyframes ninjaRun { 0% { transform: translateY(0) rotate(-2deg); } 100% { transform: translateY(-4px) rotate(2deg); } }
+        @keyframes flyMotion { 0% { transform: translateY(0); } 100% { transform: translateY(-15px); } }
+        @keyframes swimMotion { 0% { transform: translateY(0) rotate(-2deg); } 100% { transform: translateY(-8px) rotate(3deg); } }
+        @keyframes ninjaAttack { 0% { transform: translateX(0); } 40% { transform: translateX(100px) scale(1.05); } 100% { transform: translateX(0); } }
+        @keyframes ninjaHit { 0% { transform: translateX(0); filter: hue-rotate(90deg); } 20% { transform: translateX(-15px); } 40% { transform: translateX(10px); } 100% { transform: translateX(0); } }
+        @keyframes enemyEnter { 0% { transform: translateX(150px); opacity: 0; } 100% { transform: translateX(0); opacity: 1; } }
+        @keyframes enemyAttack { 0% { transform: translateX(0); } 50% { transform: translateX(-110px); } 100% { transform: translateX(0); } }
+        @keyframes enemyDie { 0% { transform: translate(0, 0) rotate(0deg) scale(1); opacity: 1; } 100% { transform: translate(120px, -120px) rotate(360deg) scale(0); opacity: 0; } }
+        @keyframes bossPulse { 0% { transform: scale(1.5); } 100% { transform: scale(1.7); } }
+        @keyframes floatUp { 0% { transform: translateY(0); opacity: 1; } 100% { transform: translateY(-100px); opacity: 0; } }
+        @keyframes timerPulse { 0% { opacity: 1; } 100% { opacity: 0.5; } }
+        @keyframes timerPulseBoss { 0% { opacity: 1; } 100% { opacity: 0.35; } }
+        @keyframes vignettePulse { 0%, 100% { box-shadow: inset 0 0 60px 20px rgba(255,0,0,0.35); } 50% { box-shadow: inset 0 0 85px 30px rgba(255,0,0,0.6); } }
+        @keyframes itemPop { 
+            0% { transform: translate(-50%, -50%) scale(0); opacity: 0; } 
+            30% { transform: translate(-50%, -50%) scale(1.3) rotate(-8deg); opacity: 1; } 
+            50% { transform: translate(-50%, -50%) scale(1.1) rotate(8deg); } 
+            70% { transform: translate(-50%, -50%) scale(1.15) rotate(-5deg); } 
+            100% { transform: translate(-50%, -50%) scale(1) rotate(0deg); opacity: 1; } 
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    
+    <div id="start-screen" class="screen active">
+        <button class="mute-toggle global-mute" onclick="toggleMute()">🔊</button>
+        <div class="flag-toggle">
+            <span id="flag-de" class="flag-btn active-flag" onclick="setLanguage('de')">🇩🇪</span>
+            <span id="flag-en" class="flag-btn" onclick="setLanguage('en')">🇬🇧</span>
+        </div>
+        <h1>MathWarrior</h1>
+        <div class="artwork">🥷 ⚔️ 👹</div>
+        
+        <select id="grade-select">
+            <option value="1-2" data-i18n="grade12">Klasse 1 / 2</option>
+            <option value="3-4" data-i18n="grade34">Klasse 3 / 4</option>
+        </select>
+
+        <button onclick="startGame()" data-i18n="newGame">Neues Spiel</button>
+        <button id="resume-btn" class="load-btn" onclick="resumeGame()" style="display:none;" data-i18n="continueGame">Weiterspielen 💾</button>
+        
+        <div style="display:flex;">
+            <button class="btn-shop" onclick="showScreen('shop-screen')" data-i18n="shopBtn">🛒 Shop</button>
+            <button class="btn-wheel" onclick="openWheel()" data-i18n="wheelBtn">🎰 Glücksrad</button>
+        </div>
+        <div style="display:flex;">
+            <button class="btn-highscore" onclick="showScreen('highscore-screen')" data-i18n="highscoreBtn">🏆 Highscore</button>
+            <button onclick="openAboutOverlay()" style="background:#57606f; box-shadow:0 4px 0 #2f3542;" data-i18n="infoBtn">ℹ️ Info</button>
+        </div>
+        <button onclick="replayIntroStory()" style="background:#8e44ad; box-shadow:0 4px 0 #6c3483;" data-i18n="storyBtn">📖 Story</button>
+    </div>
+
+    <div id="about-overlay">
+        <div class="reward-box" style="text-align: left; max-height: 80vh; overflow-y: auto; width: 90%;">
+            
+            <div id="info-content-de">
+                <h2 style="color:#ffd32a; margin-top:0; text-align: center;">Spielbeschreibung</h2>
+                
+                <h3 style="color:#ffd32a; margin-bottom:5px;">⚔️ So spielst du MathWarrior</h3>
+                <p style="font-size: 14px; line-height: 1.4; margin-top:0;">Löse die Mathe-Aufgaben so schnell wie möglich, um anzugreifen. Ist der Timer abgelaufen oder deine Antwort falsch, schlägt das Monster zu!</p>
+                
+                <h3 style="color:#ffd32a; margin-bottom:5px;">🛒 Der Shop & Items</h3>
+                <p style="font-size: 14px; line-height: 1.4; margin-top:0;">Sammle Münzen durch richtige Antworten und besiegte Bosse. Im Shop kannst du neue Ninja-Outfits freischalten oder mächtige Items kaufen:</p>
+                <ul style="font-size: 13px; line-height: 1.4; padding-left: 20px; color:#ddd;">
+                    <li>💣 <strong style="color:white;">Bombe:</strong> Löst die aktuelle Aufgabe sofort für dich und schlägt den Gegner.</li>
+                    <li>🛡️ <strong style="color:white;">Schild:</strong> Blockiert den nächsten feindlichen Treffer komplett.</li>
+                    <li>⏳ <strong style="color:white;">Sanduhr:</strong> Setzt deinen aktuellen Zeittimer wieder auf das Maximum zurück.</li>
+                    <li>❤️ <strong style="color:white;">Extraleben:</strong> Gibt dir sofort ein zusätzliches Herz, wenn du es im pausierten Spiel kaufst - oder beim Fortsetzen eines gespeicherten Spiels. Maximal 5 Herzen gleichzeitig.</li>
+                </ul>
+
+                <h3 style="color:#ffd32a; margin-bottom:5px;">💾 Automatisches Speichern</h3>
+                <p style="font-size: 14px; line-height: 1.4; margin-top:0;">Dein Fortschritt (Münzen, Outfits und Items) wird dauernd gesichert. Verlässt du ein laufendes Spiel über das Pausenmenü, kannst du es im Hauptmenü über den Button "Weiterspielen" genau dort fortsetzen!</p>
+                <p style="font-size: 14px; line-height: 1.4; margin-top:5px; color: #ff4757; font-weight: bold;">Wichtig: Jedes neue Spiel beginnt komplett frisch - Münzen, Items (💣🛡️⏳❤️) und Outfits werden zurückgesetzt und du startest als klassischer Ninja 🥷 mit einer Bombe. So bleibt das Kopfrechnen-Training immer fordernd! Nur über "Weiterspielen" behältst du deinen gesamten Fortschritt.</p>
+                
+                <h3 style="color:#ffd32a; margin-bottom:5px;">🎰 Das Glücksrad</h3>
+                <p style="font-size: 14px; line-height: 1.4; margin-top:0;">Schau regelmäßig beim Glücksrad vorbei, um völlig kostenlos Gratis-Münzen oder wertvolle Items zu erdrehen.</p>
+                
+                <div style="text-align: center; border-top: 1px dashed #555; padding-top: 15px; margin-top: 15px; color: #aaa; font-size: 13px;">
+                    App-Entwickler: <strong style="color:white;">Simon Mählmann</strong>
+                </div>
+            </div>
+
+            <div id="info-content-en" style="display:none;">
+                <h2 style="color:#ffd32a; margin-top:0; text-align: center;">Game Description</h2>
+                
+                <h3 style="color:#ffd32a; margin-bottom:5px;">⚔️ How to play MathWarrior</h3>
+                <p style="font-size: 14px; line-height: 1.4; margin-top:0;">Solve the math problems as fast as you can to attack. If the timer runs out or your answer is wrong, the monster strikes!</p>
+                
+                <h3 style="color:#ffd32a; margin-bottom:5px;">🛒 Shop & Items</h3>
+                <p style="font-size: 14px; line-height: 1.4; margin-top:0;">Collect coins by giving correct answers and defeating bosses. You can unlock new ninja outfits or buy powerful items in the shop:</p>
+                <ul style="font-size: 13px; line-height: 1.4; padding-left: 20px; color:#ddd;">
+                    <li>💣 <strong style="color:white;">Bomb:</strong> Instantly solves the current problem for you and hits the enemy.</li>
+                    <li>🛡️ <strong style="color:white;">Shield:</strong> Completely blocks the next enemy hit.</li>
+                    <li>⏳ <strong style="color:white;">Hourglass:</strong> Resets your current timer back to maximum.</li>
+                    <li>❤️ <strong style="color:white;">Extra life:</strong> Instantly gives you an additional heart when bought while paused mid-game - or when resuming a saved game. Maximum of 5 hearts at a time.</li>
+                </ul>
+
+                <h3 style="color:#ffd32a; margin-bottom:5px;">💾 Auto-Save</h3>
+                <p style="font-size: 14px; line-height: 1.4; margin-top:0;">Your progress (coins, outfits, and items) is constantly saved. If you leave a running game via the pause menu, you can resume exactly where you left off by clicking "Continue" in the main menu!</p>
+                <p style="font-size: 14px; line-height: 1.4; margin-top:5px; color: #ff4757; font-weight: bold;">Important: Every new game starts completely fresh - coins, items (💣🛡️⏳❤️) and outfits are reset and you start as the classic ninja 🥷 with one bomb. This keeps the mental math training challenging! Only "Continue" keeps your full progress.</p>
+                
+                <h3 style="color:#ffd32a; margin-bottom:5px;">🎰 Wheel of Fortune</h3>
+                <p style="font-size: 14px; line-height: 1.4; margin-top:0;">Check the Wheel of Fortune regularly to spin for completely free coins or valuable items.</p>
+                
+                <div style="text-align: center; border-top: 1px dashed #555; padding-top: 15px; margin-top: 15px; color: #aaa; font-size: 13px;">
+                    App Developer: <strong style="color:white;">Simon Mählmann</strong>
+                </div>
+            </div>
+            
+            <div style="text-align: center; margin-top: 15px;">
+                <button class="load-btn" onclick="document.getElementById('about-overlay').style.display='none'" data-i18n="backBtn">Zurück</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="game-screen" class="screen">
+        <div id="boss-vignette"></div>
+        <div id="ui-bar">
+            <div id="lives-display">❤️ ❤️ ❤️</div>
+            <div id="coins-display">🪙 0</div>
+            <div id="score-display">⭐ 0</div>
+            <div>
+                <button class="mute-toggle" onclick="toggleMute()" style="padding: 4px 8px; font-size: 12px; margin-right: 5px;">🔊</button>
+                <button id="pause-btn" class="pause-btn" onclick="togglePause()">⏸️</button>
+            </div>
+        </div>
+        <div id="wave-progress-container">
+            <div id="wave-progress-bar"></div>
+        </div>
+        
+        <div id="scenery">
+            <div id="particles-container"></div>
+            <div id="sky-decor">☁️</div>
+            <div id="scenery-object-far">🌳</div>
+            <div id="scenery-object">🌲</div>
+            <div id="battle-indicator" data-i18n="battleLabel">⚔️ Kampf!</div>
+            <div id="world-indicator" style="position:absolute; top:55px; right:15px; background:rgba(0,0,0,0.5); padding:2px 8px; border-radius:5px; font-size:12px;">Welt 1 - Welle 1</div>
+            
+            <div id="boss-hp-container">
+                BOSS HP<br><span id="boss-hearts">❤️ ❤️</span>
+            </div>
+            <div id="monster-speech">...</div>
+            <div id="ninja-speech">...</div>
+            <div id="hit-effect">💥</div>            
+            <div id="item-effect"></div>
+            <div id="stage">
+                <div id="ninja" class="character ninja-running">
+                    <span id="ninja-emoji">🥷</span>
+                    <div id="shield-bubble">🔮</div>
+                </div>
+                <div id="enemy-wrapper" class="character">
+                    <div id="enemy">👹</div>
+                </div>
+            </div>
+            <div id="ground"></div>
+        </div>
+        
+        <div id="input-zone">
+            <div id="question" data-i18n="readyLabel">Bereit?</div>
+            <div id="timer-container"><div id="timer-bar"></div></div>
+            <div id="touch-display-area"></div>
+
+            <div class="numpad-container">
+                <button class="num-btn" onclick="pressKey('1')">1</button>
+                <button class="num-btn" onclick="pressKey('2')">2</button>
+                <button class="num-btn" onclick="pressKey('3')">3</button>
+                <button class="num-btn" onclick="pressKey('4')">4</button>
+                <button class="num-btn" onclick="pressKey('5')">5</button>
+                <button class="num-btn" onclick="pressKey('6')">6</button>
+                <button class="num-btn" onclick="pressKey('7')">7</button>
+                <button class="num-btn" onclick="pressKey('8')">8</button>
+                <button class="num-btn" onclick="pressKey('9')">9</button>
+                <button class="num-btn action-btn" style="background:#57606f; color:white; box-shadow:0 3px 0 #2f3542;" onclick="pressKey('CLR')">⌫</button>
+                <button class="num-btn" onclick="pressKey('0')">0</button>
+                <button id="attack-btn" class="num-btn action-btn" onclick="checkAnswer()">⚔️</button>
+            </div>
+
+            <div class="item-row">
+                <button id="use-bomb-btn" class="item-btn" onclick="useBomb()">💣 <span id="hud-bomb-count">0</span></button>
+                <button id="use-shield-btn" class="item-btn" onclick="useShield()">🛡️ <span id="hud-shield-count">0</span></button>
+                <button id="use-time-btn" class="item-btn" onclick="useHourglass()">⏳ <span id="hud-time-count">0</span></button>
+            </div>
+        </div>
+
+        <div id="pause-overlay">
+            <h2 data-i18n="pauseTitle">Spiel pausiert</h2>
+            <button class="load-btn" onclick="togglePause()" data-i18n="pauseResume">Weiterkämpfen ⚔️</button>
+            <button onclick="openShopFromPause()" data-i18n="pauseShop">🛒 Zum Shop</button>
+            <button onclick="exitToMainMenu()" style="background:#57606f;" data-i18n="pauseMainMenu">Hauptmenü (Speichern)</button>
+        </div>
+    </div>
+
+    <div id="next-level-overlay" class="reward-box" style="display:none;">
+        <h2 style="color:#ffd32a; margin-top:0;" data-i18n="worldCompleteTitle">WELT GESCHAFFT! 🎉</h2>
+        <p id="next-level-text" style="font-size:18px; line-height:1.4;"></p>
+        <button class="load-btn" onclick="startNextWorldDirectly()" data-i18n="nextLevelBtn">Weiter zum nächsten Level ➡️</button>
+    </div>
+
+    <div id="promotion-overlay">
+        <div id="promotion-emoji">🥷</div>
+        <h2 id="promotion-title"></h2>
+        <p id="promotion-text"></p>
+        <button id="promotion-next-btn" class="load-btn" onclick="nextCutsceneSlide()"></button>
+    </div>
+
+    <div id="reward-overlay">
+        <div class="reward-box">
+            <h2 id="reward-title" style="color:#ffd32a; margin-top:0;">Gewonnen!</h2>
+            <p id="reward-text" style="font-size:18px; line-height:1.4;"></p>
+            <button class="load-btn" onclick="closeRewardOverlay()" data-i18n="rewardOkBtn">Super! 👍</button>
+        </div>
+    </div>
+
+    <div id="wheel-overlay">
+        <h2 data-i18n="wheelTitle">🎰 Glücksrad</h2>
+        <p data-i18n="wheelDesc">Drehe das Rad für tolle Gratis-Belohnungen!</p>
+        <div id="wheel-anim" class="wheel-graphic">🎁</div>
+        <button id="spin-btn" onclick="spinWheel()" style="background:#ffd32a; color:#111;" data-i18n="wheelSpinBtn">Jetzt drehen!</button>
+        <button id="wheel-close-btn" onclick="closeWheel()" data-i18n="backBtn">Zurück</button>
+    </div>
+
+    <div id="shop-screen" class="screen">
+        <h1>MathWarrior Shop</h1>
+        <p><span data-i18n="yourCoinsLabel">Deine Münzen:</span> <span id="shop-coins" style="color:#ffd32a; font-weight:bold;">🪙 0</span></p>
+        
+        <div class="shop-section" data-i18n="outfitsLabel">Outfits:</div>
+        <div class="shop-grid">
+            <div class="shop-item equipped" id="skin-0" onclick="buyOrEquipSkin(0, 0)"><span data-i18n="skin0Name">🥷 Classic</span><br><small></small></div>
+            <div class="shop-item" id="skin-1" onclick="buyOrEquipSkin(1, 15)"><span data-i18n="skin1Name">👺 Dämon</span><br><small>🪙 15</small></div>
+            <div class="shop-item" id="skin-2" onclick="buyOrEquipSkin(2, 30)"><span data-i18n="skin2Name">🐯 Tiger</span><br><small>🪙 30</small></div>
+            <div class="shop-item" id="skin-3" onclick="buyOrEquipSkin(3, 50)"><span data-i18n="skin3Name">🐱 Neko</span><br><small>🪙 50</small></div>
+        </div>
+
+        <div class="shop-section" data-i18n="buyItemsLabel">Items kaufen:</div>
+        <div class="shop-grid">
+            <div class="shop-item" id="item-bomb" onclick="buyItem('bomb', 5)"><span data-i18n="itemBombName">💣 Bombe</span><br><small data-i18n="priceBomb">Preis: 🪙 5</small></div>
+            <div class="shop-item" id="item-shield" onclick="buyItem('shield', 4)"><span data-i18n="itemShieldName">🛡️ Schild</span><br><small data-i18n="priceShield">Preis: 🪙 4</small></div>
+            <div class="shop-item" id="item-hourglass" onclick="buyItem('hourglass', 3)"><span data-i18n="itemHourglassName">⏳ Sanduhr</span><br><small data-i18n="priceHourglass">Preis: 🪙 3</small></div>
+            <div class="shop-item" id="item-heart" onclick="buyHeart()"><span data-i18n="itemHeartName">❤️ Extraleben</span><br><small data-i18n="priceHeart">Preis: 🪙 100</small></div>
+        </div>
+        <div style="display:flex; align-items:center; justify-content:center; font-size:13px; background:rgba(0,0,0,0.5); border-radius:8px; padding: 5px; width: 95%; margin-bottom: 10px;" id="inventory-summary"></div>
+        <button id="shop-back-btn" onclick="closeShop()" data-i18n="backBtn">Zurück</button>
+    </div>
+
+    <div id="game-over-screen" class="screen">
+        <h1 style="color: #ff4757;">GAME OVER</h1>
+        <div class="artwork">💀</div>
+        <p id="final-score" style="font-size: 18px; font-weight: bold;"></p>
+        
+        <div id="highscore-input-zone" style="display:none; margin-bottom: 15px; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 8px; width:90%;">
+            <p style="color: #ffd32a; margin:0 0 10px 0; font-weight: bold;" data-i18n="top10Label">Top 10 Platzierung!</p>
+            <input type="text" id="player-name" data-i18n-placeholder="namePlaceholder" placeholder="Dein Name" maxlength="12" style="font-size:16px; padding:6px; text-align:center; border-radius:5px; background:#222; color:white; border:1px solid #ffd32a;">
+            <button onclick="saveHighscore()" style="padding:6px 12px; font-size:14px; margin:0 0 0 5px;" data-i18n="saveBtn">Sichern</button>
+        </div>
+        <button onclick="showScreen('start-screen')" data-i18n="mainMenuBtn">Hauptmenü</button>
+    </div>
+
+    <div id="highscore-screen" class="screen">
+        <h1 data-i18n="highscoreTitle">Top 10 Highscore</h1>
+        <div style="display:flex; gap:8px; margin-bottom:10px;">
+            <button id="hs-tab-12" class="tab-btn active-tab" onclick="showHighscoreTab('1-2')" data-i18n="grade12">Klasse 1 / 2</button>
+            <button id="hs-tab-34" class="tab-btn" onclick="showHighscoreTab('3-4')" data-i18n="grade34">Klasse 3 / 4</button>
+        </div>
+        <ol id="highscore-list"></ol>
+        <button onclick="showScreen('start-screen')" data-i18n="backBtn">Zurück</button>
+    </div>
+</div>
+
+<script>
+    /* =========================================
+       ZENTRALE VARIABLEN & DATEN
+    ========================================= */
+    let appData = { 
+        totalCoins: 0, 
+        ownedSkins: [0], 
+        equippedSkinIndex: 0, 
+        inventory: { bomb: 1, shield: 0, hourglass: 0, heart: 0 }, 
+        maxUnlockedWorld: 1, 
+        highscores: { "1-2": [{name: "Meister", score: 30}], "3-4": [{name: "Meister", score: 30}] }, 
+        lastWheelDate: "",
+        language: "de",
+        introSeen: false,
+        storyCompleted: false
+    };
+    
+    let currentLang = 'de';
+    let highscoreTab = '1-2';
+    
+    /* =========================================
+       ÜBERSETZUNGEN
+    ========================================= */
+    const T = {
+        de: {
+            newGame: "Neues Spiel", continueGame: "Weiterspielen 💾", shopBtn: "🛒 Shop", wheelBtn: "🎰 Glücksrad",
+            highscoreBtn: "🏆 Highscore", infoBtn: "ℹ️ Info", grade12: "Klasse 1 / 2", grade34: "Klasse 3 / 4",
+            pauseTitle: "Spiel pausiert", pauseResume: "Weiterkämpfen ⚔️", pauseShop: "🛒 Zum Shop", pauseMainMenu: "Hauptmenü (Speichern)",
+            worldCompleteTitle: "WELT GESCHAFFT! 🎉", nextLevelBtn: "Weiter zum nächsten Level ➡️", rewardOkBtn: "Super! 👍",
+            wheelTitle: "🎰 Glücksrad", wheelDesc: "Drehe das Rad für tolle Gratis-Belohnungen!", wheelSpinBtn: "Jetzt drehen!",
+            wheelSpinAgainTomorrow: "Morgen wieder!", backBtn: "Zurück", backToGameBtn: "Zurück zum Spiel ⚔️",
+            yourCoinsLabel: "Deine Münzen:", outfitsLabel: "Outfits:", skin0Name: "🥷 Classic", skin1Name: "👺 Dämon",
+            skin2Name: "🐯 Tiger", skin3Name: "🐱 Neko", buyItemsLabel: "Items kaufen:", itemBombName: "💣 Bombe",
+            itemShieldName: "🛡️ Schild", itemHourglassName: "⏳ Sanduhr", itemHeartName: "❤️ Extraleben",
+            priceBomb: "Preis: 🪙 5", priceShield: "Preis: 🪙 4", priceHourglass: "Preis: 🪙 3", priceHeart: "Preis: 🪙 100",
+            top10Label: "Top 10 Platzierung!", namePlaceholder: "Dein Name", saveBtn: "Sichern", mainMenuBtn: "Hauptmenü",
+            highscoreTitle: "Top 10 Highscore", ownedLabel: "Bereit", equippedLabel: "Aktiv", readyLabel: "Bereit?",
+            criticalHit: "Kritischer Treffer! Weiter!", timeUp: "Zeit abgelaufen!", wrongAnswer: "Falsche Antwort!",
+            shieldBroken: "🛡️ Schild kaputt!", inventoryLabel: "Besitz:",
+            finalScoreTemplate: (s, c) => `Erreichte Punkte: ⭐ ${s}\n(Münzen in dieser Runde: 🪙 ${c})`,
+            highscoreEntry: (s) => `: ⭐ ${s} Punkte`,
+            worldCompletedMsg: (w) => `Welt ${w} erfolgreich abgeschlossen!`,
+            gradeUpMsg: "⚔️ Aufstieg in Klasse 3/4.", allWorldsMsg: "Du hast alle Welten gemeistert!",
+            correctText: (combo) => `Richtig! ✨${combo ? ' Kombi x' + combo : ''}`,
+            rewardWheelTitle: "🎰 Glücksrad Gewinn!",
+            rewardWheelBody: (txt) => `Super!\nDu hast folgendes erhalten:\n\n${txt}`,
+            wheelPrizes: { coins5: '🪙 5 Münzen', bomb1: '💣 1 Bombe', shield1: '🛡️ 1 Schild', hourglass1: '⏳ 1 Sanduhr', coins10: '🪙 10 Münzen!', heart1: '❤️ 1 Extraleben' },
+            worldNames: { Wald: 'Wald', Strand: 'Strand', Schloss: 'Schloss', Weltall: 'Weltall', Vulkan: 'Vulkan', 'Straße': 'Straße', Pirat: 'Pirat', Ritterburg: 'Ritterburg', Kanal: 'Kanal', Himmel: 'Himmel', Tiefsee: 'Tiefsee', Drache: 'Drache' },
+            waveLabel: (w, wave) => `${w} - Welle ${wave}/10`,
+            comboPhrases: ["Ich bin nicht zu stoppen!", "Zu einfach!", "Weiter so!", "Das war stark!", "Nächster bitte!"],
+            nextBtn: "Weiter ➡️", promotionStartBtn: "Los geht's! ⚔️", battleLabel: "⚔️ Kampf!",
+            storyBtn: "📖 Story", guardianStartBtn: "Als Wächter weiterspielen! 🛡️",
+            guardianModeMsg: "🛡️ Das Gleichgewicht hält! Ein neuer Chaos-Riss wartet...",
+            promotionSlides: [
+                { title: "Meisterhaft! 🎉", text: "Du hast alle 12 Regionen der Klasse 1 / 2 von den Rechen-Rissen befreit!" },
+                { title: "Ein Bote stürmt herein! 📯", text: "\"Ninja! Fürst Null hat Prinzessin Mathilda entführt - er will die Große Gleichung für immer zerstören!\"", emoji: "🦹👸" },
+                { title: "Bereit für mehr?", text: "Ab jetzt warten schwerere Aufgaben in Klasse 3 / 4 auf dich - größere Zahlen, Division und knifflige Boss-Aufgaben!" },
+                { title: "Aufstieg!", text: "Rette Prinzessin Mathilda, Meister-Ninja! Klasse 3 / 4 wartet auf dich!" }
+            ],
+            introSlides: [
+                { title: "Willkommen in Zahlenland! 👸", text: "Prinzessin Mathilda wacht über die Große Gleichung - das Gleichgewicht allen Rechnens.", emoji: "👸" },
+                { title: "Risse im Gleichgewicht", text: "Fürst Null, Herrscher der Leere, hat dunkle Risse in allen 12 Regionen geöffnet!", emoji: "🌀" },
+                { title: "Deine Prüfung beginnt", text: "Als Mathe-Ninja bist du der Einzige, der die Sprache der Zahlen beherrscht. Beweise dich!", emoji: "🥷" }
+            ],
+            introSlidesAdvanced: [
+                { title: "Willkommen in Zahlenland! 👸", text: "Prinzessin Mathilda wachte einst über die Große Gleichung - das Gleichgewicht allen Rechnens.", emoji: "👸" },
+                { title: "Sie wurde entführt!", text: "Fürst Null, Herrscher der Leere, hat Mathilda entführt und dunkle Risse in allen 12 Regionen geöffnet!", emoji: "🦹👸" },
+                { title: "Deine Mission beginnt", text: "Als erfahrener Mathe-Ninja bist du bereit für die größte Prüfung: Rette die Prinzessin!", emoji: "🥷" }
+            ],
+            storyEndingSlides: [
+                { title: "Der Wächter fällt! 🐉", text: "Der korrumpierte Drache sinkt zu Boden. Der Weg zu Fürst Null ist endlich frei...", emoji: "🐉" },
+                { title: "Fürst Null erscheint", text: "Ein finsteres Lachen erfüllt den Raum: \"Zahlen sind bedeutungslos - ich bin die Leere, die allem vorausging!\"", emoji: "🦹👸" },
+                { title: "Der letzte Kampf", text: "Mit deiner schärfsten Rechenkunst durchbrichst du den Käfig aus falschen Gleichungen!", emoji: "🥷⚔️🦹" },
+                { title: "Prinzessin Mathilda ist frei! 👸", text: "\"Danke, tapferer Ninja! Doch Fürst Null ist nur zurückgedrängt, nicht besiegt. Das Gleichgewicht muss ewig bewahrt werden...\"", emoji: "🥷👸" },
+                { title: "Werde zum Wächter der Zahlen", text: "Von nun an wachst du über Zahlenland - jede neue Herausforderung erhält das Gleichgewicht. Bereit?", emoji: "🥷" }
+            ]
+        },
+        en: {
+            newGame: "New Game", continueGame: "Continue 💾", shopBtn: "🛒 Shop", wheelBtn: "🎰 Wheel of Fortune",
+            highscoreBtn: "🏆 High Scores", infoBtn: "ℹ️ Info", grade12: "Grade 1 / 2", grade34: "Grade 3 / 4",
+            pauseTitle: "Game Paused", pauseResume: "Keep Fighting ⚔️", pauseShop: "🛒 Go to Shop", pauseMainMenu: "Main Menu (Save)",
+            worldCompleteTitle: "WORLD COMPLETE! 🎉", nextLevelBtn: "Continue to Next Level ➡️", rewardOkBtn: "Great! 👍",
+            wheelTitle: "🎰 Wheel of Fortune", wheelDesc: "Spin the wheel for great free rewards!", wheelSpinBtn: "Spin Now!",
+            wheelSpinAgainTomorrow: "Come back tomorrow!", backBtn: "Back", backToGameBtn: "Back to Game ⚔️",
+            yourCoinsLabel: "Your Coins:", outfitsLabel: "Outfits:", skin0Name: "🥷 Classic", skin1Name: "👺 Demon",
+            skin2Name: "🐯 Tiger", skin3Name: "🐱 Neko", buyItemsLabel: "Buy Items:", itemBombName: "💣 Bomb",
+            itemShieldName: "🛡️ Shield", itemHourglassName: "⏳ Hourglass", itemHeartName: "❤️ Extra Life",
+            priceBomb: "Price: 🪙 5", priceShield: "Price: 🪙 4", priceHourglass: "Price: 🪙 3", priceHeart: "Price: 🪙 100",
+            top10Label: "Top 10 Ranking!", namePlaceholder: "Your Name", saveBtn: "Save", mainMenuBtn: "Main Menu",
+            highscoreTitle: "Top 10 High Scores", ownedLabel: "Owned", equippedLabel: "Equipped", readyLabel: "Ready?",
+            criticalHit: "Critical hit! Keep going!", timeUp: "Time's up!", wrongAnswer: "Wrong answer!",
+            shieldBroken: "🛡️ Shield broken!", inventoryLabel: "Inventory:",
+            finalScoreTemplate: (s, c) => `Points achieved: ⭐ ${s}\n(Coins this round: 🪙 ${c})`,
+            highscoreEntry: (s) => `: ⭐ ${s} points`,
+            worldCompletedMsg: (w) => `World ${w} completed successfully!`,
+            gradeUpMsg: "⚔️ Promoted to Grade 3/4.", allWorldsMsg: "You have mastered all worlds!",
+            correctText: (combo) => `Correct! ✨${combo ? ' Combo x' + combo : ''}`,
+            rewardWheelTitle: "🎰 Wheel of Fortune Prize!",
+            rewardWheelBody: (txt) => `Great!\nYou received the following:\n\n${txt}`,
+            wheelPrizes: { coins5: '🪙 5 Coins', bomb1: '💣 1 Bomb', shield1: '🛡️ 1 Shield', hourglass1: '⏳ 1 Hourglass', coins10: '🪙 10 Coins!', heart1: '❤️ 1 Extra Life' },
+            worldNames: { Wald: 'Forest', Strand: 'Beach', Schloss: 'Castle', Weltall: 'Space', Vulkan: 'Volcano', 'Straße': 'Street', Pirat: 'Pirate Cove', Ritterburg: "Knight's Castle", Kanal: 'Sewer', Himmel: 'Sky', Tiefsee: 'Deep Sea', Drache: "Dragon's Lair" },
+            waveLabel: (w, wave) => `${w} - Wave ${wave}/10`,
+            comboPhrases: ["I can't be stopped!", "Too easy!", "Keep it up!", "That was strong!", "Next one, please!"],
+            nextBtn: "Next ➡️", promotionStartBtn: "Let's go! ⚔️", battleLabel: "⚔️ Battle!",
+            storyBtn: "📖 Story", guardianStartBtn: "Continue as Guardian! 🛡️",
+            guardianModeMsg: "🛡️ The balance holds! A new rift of chaos awaits...",
+            promotionSlides: [
+                { title: "Masterful! 🎉", text: "You have freed all 12 regions of Grade 1 / 2 from the rifts of chaos!" },
+                { title: "A messenger bursts in! 📯", text: "\"Ninja! Lord Zero has kidnapped Princess Mathilda - he wants to destroy the Great Equation forever!\"", emoji: "🦹👸" },
+                { title: "Ready for more?", text: "From now on, harder challenges await in Grade 3 / 4 - bigger numbers, division, and tricky boss problems!" },
+                { title: "Level Up!", text: "Rescue Princess Mathilda, master ninja! Grade 3 / 4 awaits!" }
+            ],
+            introSlides: [
+                { title: "Welcome to Numberland! 👸", text: "Princess Mathilda watches over the Great Equation - the balance of all calculation.", emoji: "👸" },
+                { title: "Cracks in the Balance", text: "Lord Zero, ruler of the void, has opened dark rifts across all 12 regions!", emoji: "🌀" },
+                { title: "Your Trial Begins", text: "As a Math Ninja, you alone speak the language of numbers. Prove yourself!", emoji: "🥷" }
+            ],
+            introSlidesAdvanced: [
+                { title: "Welcome to Numberland! 👸", text: "Princess Mathilda once watched over the Great Equation - the balance of all calculation.", emoji: "👸" },
+                { title: "She has been kidnapped!", text: "Lord Zero, ruler of the void, has kidnapped Mathilda and opened dark rifts across all 12 regions!", emoji: "🦹👸" },
+                { title: "Your Mission Begins", text: "As an experienced Math Ninja, you're ready for the greatest trial: rescue the princess!", emoji: "🥷" }
+            ],
+            storyEndingSlides: [
+                { title: "The Guardian Falls! 🐉", text: "The corrupted dragon sinks to the ground. The path to Lord Zero is finally clear...", emoji: "🐉" },
+                { title: "Lord Zero Appears", text: "A dark laugh fills the room: \"Numbers are meaningless - I am the void that came before all things!\"", emoji: "🦹👸" },
+                { title: "The Final Battle", text: "With your sharpest calculation skills, you shatter the cage of false equations!", emoji: "🥷⚔️🦹" },
+                { title: "Princess Mathilda is Free! 👸", text: "\"Thank you, brave ninja! But Lord Zero is only pushed back, not defeated. The balance must be kept forever...\"", emoji: "🥷👸" },
+                { title: "Become the Guardian of Numbers", text: "From now on, you watch over Numberland - every new challenge preserves the balance. Ready?", emoji: "🥷" }
+            ]
+        }
+    };
+    
+    /* =========================================
+       SPRACHSTEUERUNG
+    ========================================= */
+    function applyStaticTranslations() {
+        document.querySelectorAll('[data-i18n]').forEach(el => {
+            const key = el.getAttribute('data-i18n');
+            if (T[currentLang][key] !== undefined) el.textContent = T[currentLang][key];
+        });
+        document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+            const key = el.getAttribute('data-i18n-placeholder');
+            if (T[currentLang][key] !== undefined) el.placeholder = T[currentLang][key];
+        });
+    }
+
+    function setLanguage(lang) {
+        currentLang = lang;
+        appData.language = lang;
+        saveAllData();
+        
+        document.getElementById('flag-de').classList.toggle('active-flag', lang === 'de');
+        document.getElementById('flag-en').classList.toggle('active-flag', lang === 'en');
+        
+        applyStaticTranslations();
+        
+        document.getElementById('info-content-de').style.display = lang === 'de' ? 'block' : 'none';
+        document.getElementById('info-content-en').style.display = lang === 'en' ? 'block' : 'none';
+        
+        if (document.getElementById('game-screen').classList.contains('active')) updateUI();
+        if (document.getElementById('shop-screen').classList.contains('active')) updateShopUI();
+        if (document.getElementById('highscore-screen').classList.contains('active')) displayHighscores();
+    }
+
+    function openAboutOverlay() {
+        document.getElementById('info-content-de').style.display = currentLang === 'de' ? 'block' : 'none';
+        document.getElementById('info-content-en').style.display = currentLang === 'en' ? 'block' : 'none';
+        document.getElementById('about-overlay').style.display = 'flex';
+    }
+
+    function showHighscoreTab(grade) {
+        highscoreTab = grade;
+        document.getElementById('hs-tab-12').classList.toggle('active-tab', grade === '1-2');
+        document.getElementById('hs-tab-34').classList.toggle('active-tab', grade === '3-4');
+        displayHighscores();
+    }
+
+    let lives, coins, score, currentAnswer, isWaiting, selectedGrade, currentEnemyCount;
+    let timerInterval, timeLeft, maxTime;
+    let shieldActive = false, isPaused = false, cameFromPause = false, isMuted = false, pauseRequested = false;
+    let currentWorld = 1; 
+    let bossHp = 0, comboStreak = 0; 
+    let currentInputStr = ""; 
+    let audioCtx, musicInterval, musicBeat = 0;
+    let speechTimeout, ninjaSpeechTimeout;
+    // Merkt sich die zuletzt gezeigten Objekte/Gegner, damit nie zweimal dasselbe hintereinander erscheint
+    let lastSceneryObject = "", lastSceneryFarObject = "", lastEnemyEmoji = "";
+    
+    const MAX_LIVES = 5;
+    const BASE_LIVES = 3;
+    const MAX_HEART_INVENTORY = MAX_LIVES - BASE_LIVES; // 2 gespeicherte Herzen -> max. 5 Leben insgesamt (3 Basis + 2)
+    
+    const worldsConfig = [
+        { name: 'Wald', sky: 'linear-gradient(to bottom, #1e3799, #4a69bd)', ground: '#78e08f', objects: ['🌲', '🌳', '🌿', '🪵', '🍄', '🍂', '🌻', '🪨', '🦌'], skyObj: '☁️', enemies: ['🐺', '🐗', '🕷️', '🍄', '🦔', '🦡', '🐍', '🦉'], boss: '👹', bossMaxHp: 2, mode: 'ground', particleType: 'leaves', musicPitch: 1.0, dialogue: {
+            de: { hit: ["Aua!", "Lauf schneller!", "Nicht getroffen!", "Das tat weh!", "Zurück, Ninja!"], win: ["Ich komme wieder!", "Verfluchter Ninja!", "Nicht fair!", "Der Wald rächt sich!", "Der Wald behält dich!"], lose: ["Zu langsam!", "Mehr Mathe lernen!", "Schwach!", "Kinderspiel!", "Verlauf dich nicht!"], bossDefeat: "Der Waldgeist verschwindet in Rauch!" },
+            en: { hit: ["Ouch!", "Run faster!", "Missed me!", "That hurt!", "Back off, ninja!"], win: ["I'll be back!", "Cursed ninja!", "Not fair!", "The forest takes revenge!", "The forest keeps you!"], lose: ["Too slow!", "Learn more math!", "Weak!", "Child's play!", "Don't get lost!"], bossDefeat: "The forest spirit vanishes in smoke!" }
+        } },
+        { name: 'Strand', sky: 'linear-gradient(to bottom, #0a3d62, #3c6382)', ground: '#f6b93b', objects: ['🌴', '🪨', '🐚', '🏖️', '⛱️', '🍉', '🏐', '⛵', '🪸'], skyObj: '☀️', enemies: ['🦀', '🦂', '🐍', '🐢', '🦞', '🦩', '🐙', '🦑'], boss: '🦀', bossMaxHp: 2, mode: 'ground', particleType: 'sand', musicPitch: 1.12, dialogue: {
+            de: { hit: ["Sand im Auge!", "Kneif mich nicht!", "Autsch, meine Schere!", "Nicht die Krabbe!", "Meine Scheren!"], win: ["Ab ins Meer mit mir!", "Du nervst!", "Zurück zur Flut!", "Das war knapp!", "Wellen schlucken dich!"], lose: ["Sonnenstich?", "Zu heiß für dich?", "Schwimm weiter!", "Ebbe für dich!", "Verbrannt vom Sand!"], bossDefeat: "Die Riesenkrabbe flüchtet zurück ins Meer!" },
+            en: { hit: ["Sand in my eye!", "Don't pinch me!", "Ouch, my claw!", "Not the crab!", "My claws!"], win: ["Off to the sea with me!", "You're annoying!", "Back to the tide!", "That was close!", "Waves swallow you!"], lose: ["Sunstroke?", "Too hot for you?", "Keep swimming!", "Low tide for you!", "Burned by sand!"], bossDefeat: "The giant crab flees back into the sea!" }
+        } },
+        { name: 'Schloss', sky: 'linear-gradient(to bottom, #1e1b26, #2c2538)', ground: '#4b4b4b', objects: ['🧱', '🕯️', '🛡️', '🪦', '🚪', '🗝️', '⚰️', '🕸️', '🏺'], skyObj: '🦇', enemies: ['👻', '🧛', '🧙‍♀️', '🦇', '🕷️', '⚰️', '🧟', '🐈‍⬛'], boss: '💀', bossMaxHp: 2, mode: 'ground', particleType: 'dust', musicPitch: 0.85, dialogue: {
+            de: { hit: ["Buh!", "Schaurig...", "Gänsehaut?", "Meine Knochen!", "Kalter Hauch!"], win: ["Zurück ins Grab!", "Uaargh!", "Verflucht sei du!", "Die Nacht gehört mir!", "Die Krypta ruft!"], lose: ["Fürchte dich!", "Die Geisterstunde!", "Kalte Schauer!", "Für immer verloren!", "Verflucht!"], bossDefeat: "Das Skelett zerfällt zu Staub!" },
+            en: { hit: ["Boo!", "Spooky...", "Goosebumps?", "My bones!", "Cold breath!"], win: ["Back to the grave!", "Argh!", "Cursed be you!", "The night is mine!", "The crypt calls!"], lose: ["Fear me!", "The witching hour!", "Cold shivers!", "Lost forever!", "Cursed!"], bossDefeat: "The skeleton crumbles to dust!" }
+        } },
+        { name: 'Weltall', sky: 'linear-gradient(to bottom, #000211, #0f1123)', ground: '#2d3436', objects: ['🚀', '🛰️', '🪐', '☄️', '🌌', '🌠', '🌕', '🌑', '⭐'], skyObj: '⭐', enemies: ['👽', '👾', '🤖', '☄️', '🪳', '🧟', '🦠', '🐙'], boss: '🛸', bossMaxHp: 3, mode: 'ufo', particleType: 'stars', musicPitch: 1.05, dialogue: {
+            de: { hit: ["Beep boop!", "Schild aktiv!", "Energie niedrig!", "Warnung, Warnung!", "Alarm! Alarm!"], win: ["Systemausfall!", "Absturz!", "Signal verloren!", "Notfallprotokoll!", "Verbindung verloren!"], lose: ["Mission gescheitert!", "Erdling besiegt!", "Zurück zur Basis!", "Schwacher Erdling!", "Schwerelos besiegt!"], bossDefeat: "Das Ufo explodiert in tausend Sterne!" },
+            en: { hit: ["Beep boop!", "Shield active!", "Energy low!", "Warning, warning!", "Alert! Alert!"], win: ["System failure!", "Crashing!", "Signal lost!", "Emergency protocol!", "Connection lost!"], lose: ["Mission failed!", "Earthling defeated!", "Returning to base!", "Weak earthling!", "Defeated weightless!"], bossDefeat: "The UFO explodes into a thousand stars!" }
+        } },
+        { name: 'Vulkan', sky: 'linear-gradient(to bottom, #2c0000, #110000)', ground: '#b33939', objects: ['🌋', '🪨', '🔥', '🪵', '🖤', '⛰️', '💥', '🦴', '🌪️'], skyObj: '☄️', enemies: ['🔥', '🦎', '👿', '🪨', '🦂', '🐛', '🦖', '💥'], boss: '🐉', bossMaxHp: 3, mode: 'ground', particleType: 'sparks', musicPitch: 0.95, dialogue: {
+            de: { hit: ["Glühend heiß!", "Autsch!", "Brennt!", "Das Feuer brennt!", "Kochend heiß!"], win: ["Schmilz dahin!", "Der Vulkan weint!", "Asche zu Asche!", "Zu heiß gekocht!", "Lava verschlingt dich!"], lose: ["Zu heiß für dich!", "Zu Asche!", "Verbrannt!", "Lava-Opfer!", "Versengt!"], bossDefeat: "Der Feuerdrache erlischt wie eine Kerze!" },
+            en: { hit: ["Glowing hot!", "Ouch!", "Burning!", "The fire burns!", "Boiling hot!"], win: ["Melt away!", "The volcano weeps!", "Ashes to ashes!", "Cooked too hot!", "Lava swallows you!"], lose: ["Too hot for you!", "Turned to ash!", "Burned!", "Lava victim!", "Scorched!"], bossDefeat: "The fire dragon fades like a candle!" }
+        } },
+        { name: 'Straße', sky: 'linear-gradient(to bottom, #57606f, #2f3542)', ground: '#747d8c', objects: ['🏪', '🪧', '🚧', '🚗', '🚦', '🏙️', '🚕', '🗑️', '🛵'], skyObj: '🦅', enemies: ['🦹', '🐕‍🦺', '🥷🏿', '🐀', '🦝', '🐦‍⬛', '🐈‍⬛', '🐕'], boss: '😈', bossMaxHp: 3, mode: 'ground', particleType: 'dust', musicPitch: 1.0, dialogue: {
+            de: { hit: ["Aus dem Weg!", "Platz da!", "Nicht schummeln!", "Zurückweichen!", "Nicht in meinem Revier!"], win: ["Ich geb auf!", "Rückzug!", "Respekt, Ninja!", "Das war knapp!", "Verschwinde von der Straße!"], lose: ["Stau im Kopf?", "Zu langsam!", "Verkehrschaos!", "Ampel rot!", "Straßenkrieger-Verlierer!"], bossDefeat: "Der Rivale gibt sich geschlagen!" },
+            en: { hit: ["Out of my way!", "Move it!", "No cheating!", "Back off!", "Not in my territory!"], win: ["I give up!", "Retreat!", "Respect, ninja!", "That was close!", "Get off the street!"], lose: ["Traffic jam in your head?", "Too slow!", "Traffic chaos!", "Red light!", "Street warrior loser!"], bossDefeat: "The rival admits defeat!" }
+        } },
+        { name: 'Pirat', sky: 'linear-gradient(to bottom, #22a6b3, #30336b)', ground: '#be2edd', objects: ['📦', '⚓', '🪙', '🪵', '🗺️', '🛶', '💰', '🍾', '🏴‍☠️'], skyObj: '🏴‍☠️', enemies: ['🧔‍☠️', '🐒', '🦜', '🦈', '🦀', '🐬', '🐊', '🦭'], boss: '🦑', bossMaxHp: 3, mode: 'ground', ninjaDecor: 'parrot', particleType: 'water', musicPitch: 1.08, dialogue: {
+            de: { hit: ["Arrr!", "Beim Klabautermann!", "Volle Breitseite!", "Enterhaken los!", "Yohoho!"], win: ["Mein Schatz!", "Blubb blubb...", "Versenkt!", "Zurück ins Wasser!", "Versenkt in der Tiefe!"], lose: ["Über die Planke!", "Leinen los!", "Landratte!", "Schatzsucher-Verlierer!", "Meuterei!"], bossDefeat: "Der Riesenkrake taucht tief hinab!" },
+            en: { hit: ["Arrr!", "By the kraken!", "Full broadside!", "Grappling hooks away!", "Yohoho!"], win: ["My treasure!", "Blub blub...", "Sunk!", "Back to the water!", "Sunk in the depths!"], lose: ["Walk the plank!", "Cast off!", "Landlubber!", "Treasure hunter loser!", "Mutiny!"], bossDefeat: "The giant kraken dives deep down!" }
+        } },
+        { name: 'Ritterburg', sky: 'linear-gradient(to bottom, #130f40, #30336b)', ground: '#535c68', objects: ['🏰', '🧱', '🛡️', '🔥', '⛺', '🚩', '🗡️', '🪓', '🏹'], skyObj: '🛡️', enemies: ['💂', '🧙', '🏹', '🐺', '🗡️', '🐴', '🪓', '🛡️'], boss: '⚔️', bossMaxHp: 3, mode: 'ground', particleType: 'dust', musicPitch: 0.9, dialogue: {
+            de: { hit: ["Schildkröte!", "Pariert!", "Guter Hieb!", "Getroffen!", "Zurückweichen, Schurke!"], win: ["Ritterlich!", "Meine Ehre!", "Ich unterliege!", "Ein würdiger Gegner!", "Für die Krone!"], lose: ["Schachmatt!", "Verloren!", "Zu schwach!", "Die Burg fällt!", "Niedergestreckt!"], bossDefeat: "Das Ritterschwert zerbricht mit einem Knall!" },
+            en: { hit: ["Turtle shell!", "Parried!", "Good strike!", "Hit!", "Fall back, rogue!"], win: ["Chivalrous!", "My honor!", "I yield!", "A worthy opponent!", "For the crown!"], lose: ["Checkmate!", "Defeated!", "Too weak!", "The castle falls!", "Struck down!"], bossDefeat: "The knight's sword shatters with a crash!" }
+        } },
+        { name: 'Kanal', sky: 'linear-gradient(to bottom, #1b3a24, #0c1c11)', ground: '#2c3e50', objects: ['🪠', '🚧', '📦', '🛢️', '🧪', '💧', '🕳️', '🪣', '🧹'], skyObj: '🪰', enemies: ['🐀', '🐊', '🦟', '🦠', '🪳', '🐛', '🕷️', '🐍'], boss: '🐙', bossMaxHp: 4, mode: 'ground', ninjaDecor: 'stink', particleType: 'slime', musicPitch: 0.8, dialogue: {
+            de: { hit: ["Eklig!", "Igitt!", "Schleimig!", "Das war eklig!", "Schleim überall!"], win: ["Weggespült!", "Matsch!", "Zurück in die Kanalisation!", "Igittigitt!", "Zurück in den Sumpf!"], lose: ["Stinkig!", "Rattenfutter!", "Kanalratte!", "Versumpft!", "Versunken!"], bossDefeat: "Der Oktopus verschwindet im Abfluss!" },
+            en: { hit: ["Gross!", "Ew!", "Slimy!", "That was disgusting!", "Slime everywhere!"], win: ["Washed away!", "Mush!", "Back to the sewer!", "Yuck!", "Back to the swamp!"], lose: ["Stinky!", "Rat food!", "Sewer rat!", "Swamped!", "Sunk!"], bossDefeat: "The octopus disappears down the drain!" }
+        } },
+        { name: 'Himmel', sky: 'linear-gradient(to bottom, #70a1ff, #1e90ff)', ground: 'rgba(255,255,255,0.4)', objects: ['☁️', '🎈', '🕊️', '🪁', '⚡', '🌤️', '🌈', '🪂', '🎏'], skyObj: '🎈', enemies: ['🦅', '🐝', '🕊️', '💨', '🦋', '🐦', '🦇', '🪰'], boss: '🦉', bossMaxHp: 4, mode: 'fly', particleType: 'clouds', musicPitch: 1.2, dialogue: {
+            de: { hit: ["Gegenwind!", "Festhalten!", "Hoch hinaus!", "Turbulenzen!", "Sturmböen!"], win: ["Absturz!", "Freier Fall!", "Zu Boden!", "Federn verloren!", "Abgestürzt in die Wolken!"], lose: ["Weggeblasen!", "Zu hoch!", "Schwindelig?", "Höhenangst?", "Wolkenverloren!"], bossDefeat: "Die Eule stürzt sanft zu Boden!" },
+            en: { hit: ["Headwind!", "Hold on!", "Higher up!", "Turbulence!", "Gusts of wind!"], win: ["Crashing down!", "Free fall!", "Grounded!", "Lost my feathers!", "Crashed into the clouds!"], lose: ["Blown away!", "Too high!", "Dizzy?", "Afraid of heights?", "Lost in the clouds!"], bossDefeat: "The owl gently glides to the ground!" }
+        } },
+        { name: 'Tiefsee', sky: 'linear-gradient(to bottom, #005577, #001122)', ground: '#eccc68', objects: ['🪸', '🫧', '🐚', '⚓', '🏺', '🌊', '🐌', '🦪', '🗿'], skyObj: '🫧', enemies: ['🪼', '🐡', '🦈', '🐠', '🦑', '🐙', '🦐', '🐍'], boss: '🐋', bossMaxHp: 4, mode: 'swim', particleType: 'bubbles', musicPitch: 0.75, dialogue: {
+            de: { hit: ["Blub!", "Luft anhalten!", "Glucks...", "Wasser im Ohr!", "Tiefendruck!"], win: ["Sinkflug!", "Tiefsee-Grab!", "Abgetaucht!", "Auf den Meeresgrund!", "Verschluckt von der Tiefe!"], lose: ["Blubber-Versager!", "Ertrunken!", "Fischfutter!", "Nass geworden?", "Meeresgrund-Versager!"], bossDefeat: "Der Wal taucht ab in die Tiefe!" },
+            en: { hit: ["Blub!", "Hold your breath!", "Glug...", "Water in my ear!", "Deep pressure!"], win: ["Sinking!", "Deep sea grave!", "Submerged!", "Down to the seabed!", "Swallowed by the deep!"], lose: ["Bubble loser!", "Drowned!", "Fish food!", "Got wet?", "Seabed loser!"], bossDefeat: "The whale dives down into the deep!" }
+        } },
+        { name: 'Drache', sky: 'linear-gradient(to bottom, #4a0000, #ff4757)', ground: '#2f3542', objects: ['💎', '👑', '🪙', '⚔️', '🌋', '🏆', '🦴', '🔥', '🗿'], skyObj: '🔥', enemies: ['🐍', '🦖', '🔥', '💥', '🦂', '👹', '👿', '🦇'], boss: '🐲', bossMaxHp: 5, mode: 'ground', particleType: 'sparks', musicPitch: 0.88, dialogue: {
+            de: { hit: ["Rooar!", "Meine Schätze!", "Feuer frei!", "Zähne zeigen!", "Verbrannter Stolz!"], win: ["Der Drache fällt!", "Unmöglich!", "Mein Ende naht!", "Wie kann das sein?", "Der Hort ist sicher!"], lose: ["Mein Gold!", "Gefressen!", "Zu Asche verbrannt!", "Kein Entkommen!", "Geröstet!"], bossDefeat: "Der Drache verwandelt sich in Goldstaub!" },
+            en: { hit: ["Roar!", "My treasures!", "Fire away!", "Baring teeth!", "Burned pride!"], win: ["The dragon falls!", "Impossible!", "My end is near!", "How can this be?", "The hoard is safe!"], lose: ["My gold!", "Devoured!", "Burned to ash!", "No escape!", "Roasted!"], bossDefeat: "The dragon turns into golden dust!" }
+        } }
+    ];
+    
+    // Robuste Emojis für fehlerfreie Darstellung im Shop
+    const skins = ["🥷", "👺", "🐯", "🐱"];
+
+    /* =========================================
+       DATEN-MANAGEMENT
+    ========================================= */
+    function loadAllData() { 
+        const stored = localStorage.getItem('mathwarrior_all_data'); 
+        if (stored) {
+            appData = JSON.parse(stored); 
+            if (!appData.inventory) appData.inventory = { bomb: 1, shield: 0, hourglass: 0, heart: 0 };
+            if (!appData.language) appData.language = "de";
+            if (!appData.highscores || Array.isArray(appData.highscores)) {
+                // Altes Format (eine gemeinsame Liste) auf getrennte Klassen-Listen migrieren
+                const oldList = Array.isArray(appData.highscores) ? appData.highscores : [];
+                appData.highscores = { 
+                    "1-2": oldList.length ? oldList : [{name: "Meister", score: 30}], 
+                    "3-4": [{name: "Meister", score: 30}] 
+                };
+            }
+        }
+        if (!appData.lastWheelDate) appData.lastWheelDate = ""; 
+        if (appData.introSeen === undefined) appData.introSeen = false;
+        if (appData.storyCompleted === undefined) appData.storyCompleted = false;
+    }
+
+    function saveAllData() { 
+        localStorage.setItem('mathwarrior_all_data', JSON.stringify(appData)); 
+    }
+
+    window.onload = function() { 
+        loadAllData(); 
+        currentLang = appData.language || 'de';
+        document.getElementById('flag-de').classList.toggle('active-flag', currentLang === 'de');
+        document.getElementById('flag-en').classList.toggle('active-flag', currentLang === 'en');
+        applyStaticTranslations();
+        checkSavedGameButton(); 
+    };
+
+    function checkSavedGameButton() { 
+        document.getElementById('resume-btn').style.display = localStorage.getItem('mathwarrior_current_save') ? 'block' : 'none'; 
+    }
+
+    /* =========================================
+       AUDIO-LOGIK
+    ========================================= */
+    function initAudio() { 
+        if (!audioCtx) { 
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)(); 
+            startProceduralMusic(); 
+        } 
+        if (audioCtx.state === 'suspended') {
+            audioCtx.resume(); 
+        }
+    }
+
+    function playRetroSound(type) {
+        if (isMuted) return; 
+        initAudio();
+
+        if (type === 'correct') { 
+            playToneEffect(523.25, 0.1, 'sine', 0.08); 
+            setTimeout(() => playToneEffect(659.25, 0.15, 'sine', 0.08), 80); 
+        } else if (type === 'hit') { 
+            playToneEffect(140, 0.2, 'sawtooth', 0.2); 
+            playToneEffect(90, 0.25, 'triangle', 0.2); 
+        } else if (type === 'item' || type === 'wheel') { 
+            playToneEffect(300, 0.08, 'sine', 0.08); 
+            setTimeout(() => playToneEffect(900, 0.1, 'sine', 0.08), 60); 
+        } else if (type === 'boss') { 
+            playToneEffect(110, 0.3, 'sawtooth', 0.2); 
+        } else if (type === 'shieldbreak') {
+            playToneEffect(700, 0.08, 'sine', 0.15);
+            setTimeout(() => playToneEffect(1000, 0.12, 'sine', 0.15), 70);
+        } else if (type === 'worldclear') {
+            const notes = [523.25, 659.25, 783.99, 1046.50]; 
+            notes.forEach((f, i) => setTimeout(() => playToneEffect(f, 0.15, 'triangle', 0.08), i * 90));
+        }
+    }
+
+    function playToneEffect(freq, duration, type, volume) {
+        try { 
+            const now = audioCtx.currentTime; 
+            let osc = audioCtx.createOscillator(); 
+            let gain = audioCtx.createGain(); 
+            osc.type = type; 
+            osc.frequency.value = freq; 
+            
+            gain.gain.setValueAtTime(volume, now); 
+            gain.gain.exponentialRampToValueAtTime(0.00001, now + duration); 
+            
+            osc.connect(gain); 
+            gain.connect(audioCtx.destination); 
+            osc.start(); 
+            osc.stop(now + duration); 
+        } catch(e){}
+    }
+
+    // Drei verschiedene Melodie-Muster (Pentatonik-Verhältnisse, klingen immer harmonisch).
+    // Welche Melodie gespielt wird, hängt von der aktuellen Welt ab -> Abwechslung beim Weltenwechsel.
+    const melodyPatterns = [
+        [1, 1.25, 1.5, 2, 1.667, 1.5, 1.25, 1],          // Melodie A: aufsteigend & zurück
+        [1.5, 1.667, 2, 1.667, 1.5, 1.25, 1.125, 1.25],  // Melodie B: hoch beginnend, wellenförmig
+        [1, 1.125, 1.25, 1.5, 1.667, 1.5, 1.25, 1.125]   // Melodie C: sanft treppauf/treppab
+    ];
+
+    function startProceduralMusic() {
+        const bassNotes = [110.00, 110.00, 130.81, 146.83, 110.00, 110.00, 164.81, 146.83];
+        
+        function tick() {
+            const gameActive = document.getElementById('game-screen').classList.contains('active');
+            const isBossFight = gameActive && currentEnemyCount === 10;
+            const isWalkingPhase = gameActive && document.getElementById('scenery').classList.contains('walking');
+            
+            // Die Musik läuft jetzt IMMER durch - die Dramatik entsteht über das Tempo:
+            // Laufen = gemütlich, Kampf = schneller, Bosskampf = am schnellsten.
+            const interval = isBossFight ? 260 : (isWalkingPhase ? 500 : 380);
+            
+            if (!isMuted && !isPaused && gameActive && audioCtx) {
+                try {
+                    const worldObj = worldsConfig[(currentWorld - 1) % worldsConfig.length];
+                    const pitch = worldObj.musicPitch || 1;
+                    
+                    let note = bassNotes[musicBeat % bassNotes.length] * pitch;
+                    if (isBossFight) note = note * 0.75;
+                    
+                    const now = audioCtx.currentTime; 
+                    let osc = audioCtx.createOscillator(); 
+                    let gain = audioCtx.createGain(); 
+                    
+                    osc.type = 'triangle'; 
+                    osc.frequency.value = note; 
+                    
+                    // Beim Laufen etwas leiser, im Bosskampf präsenter (insgesamt angehoben)
+                    const bassVolume = isWalkingPhase ? 0.018 : (isBossFight ? 0.035 : 0.028);
+                    gain.gain.setValueAtTime(bassVolume, now); 
+                    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.35); 
+                    
+                    osc.connect(gain); 
+                    gain.connect(audioCtx.destination); 
+                    osc.start(); 
+                    osc.stop(now + 0.4); 
+                    
+                    // Dezenter Percussion-Tick auf den Zwischenbeats (gibt der Musik Puls)
+                    if (musicBeat % 2 === 1) playPercussionTick(isBossFight);
+                    
+                    // Melodie-Stimme läuft jetzt auch beim Laufen mit (nur leiser)
+                    if (musicBeat % 2 === 0) playMelodyNote(musicBeat, pitch, isBossFight, isWalkingPhase);
+                    
+                    musicBeat++; 
+                } catch(e){}
+            }
+            
+            musicInterval = setTimeout(tick, interval);
+        }
+        
+        tick();
+    }
+
+    function playMelodyNote(beatIndex, pitch, isBossFight, isWalkingPhase) {
+        try {
+            // Melodie-Muster abhängig von der aktuellen Welt wählen (wechselt alle 1-2 Welten)
+            const pattern = melodyPatterns[(currentWorld - 1) % melodyPatterns.length];
+            const baseFreq = 220 * pitch;
+            const freq = baseFreq * pattern[Math.floor(beatIndex / 2) % pattern.length];
+            
+            const now = audioCtx.currentTime;
+            let osc = audioCtx.createOscillator();
+            let gain = audioCtx.createGain();
+            
+            osc.type = 'sine';
+            osc.frequency.value = isBossFight ? freq * 1.1 : freq;
+            
+            gain.gain.setValueAtTime(isWalkingPhase ? 0.012 : 0.022, now);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.3);
+            
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(now + 0.3);
+        } catch(e){}
+    }
+
+    function playPercussionTick(isBossFight) {
+        try {
+            const now = audioCtx.currentTime;
+            let osc = audioCtx.createOscillator();
+            let gain = audioCtx.createGain();
+            
+            osc.type = 'square';
+            osc.frequency.value = isBossFight ? 2200 : 1800;
+            
+            gain.gain.setValueAtTime(0.008, now);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.05);
+            
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(now + 0.06);
+        } catch(e){}
+    }
+
+    function toggleMute() { 
+        isMuted = !isMuted; 
+        if (!isMuted) initAudio(); 
+        document.querySelectorAll('.mute-toggle').forEach(b => b.innerText = isMuted ? '🔇' : '🔊'); 
+    }
+
+    // Audio pausieren, sobald die App/Seite in den Hintergrund geht (Tab-Wechsel, Home-Button, Sperrbildschirm).
+    // Mehrere Events kombiniert, da sich WebViews (z.B. in der APK) bei visibilitychange nicht immer zuverlässig verhalten.
+    function pauseAudioForBackground() {
+        if (audioCtx) { try { audioCtx.suspend(); } catch(e) {} }
+    }
+    function resumeAudioForForeground() {
+        if (audioCtx && !isMuted) { try { audioCtx.resume(); } catch(e) {} }
+    }
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) pauseAudioForBackground(); else resumeAudioForForeground();
+    });
+    window.addEventListener('pagehide', pauseAudioForBackground);
+    window.addEventListener('blur', pauseAudioForBackground);
+    window.addEventListener('pageshow', resumeAudioForForeground);
+    window.addEventListener('focus', resumeAudioForForeground);
+
+    /* =========================================
+       UI & SCREEN-STEUERUNG
+    ========================================= */
+    function showScreen(screenId) {
+        document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+        document.getElementById(screenId).classList.add('active');
+        
+        if(screenId === 'highscore-screen') displayHighscores();
+        if(screenId === 'shop-screen') updateShopUI();
+        if(screenId === 'start-screen') checkSavedGameButton();
+    }
+
+    function spawnParticles(type, count) {
+        const container = document.getElementById('particles-container');
+        for(let i=0; i<count; i++) {
+            let p = document.createElement('div');
+            p.className = 'particle';
+            p.innerText = (type === 'bubbles') ? '🫧' : (type === 'sparks') ? '✨' : (type === 'stars') ? '⭐' : (type === 'sand') ? '🪙' : (type === 'slime') ? '🟢' : (type === 'clouds') ? '☁️' : (type === 'water') ? '💧' : (type === 'dust') ? '💨' : '🍃';
+            p.style.left = (Math.random() * 80 + 10) + '%';
+            p.style.bottom = (Math.random() * 20 + 20) + '%';
+            container.appendChild(p);
+            setTimeout(() => p.remove(), 1500);
+        }
+    }
+
+    function showMonsterSpeech(text) {
+        const bubble = document.getElementById('monster-speech');
+        clearTimeout(speechTimeout);
+        bubble.innerText = text; 
+        bubble.style.display = 'block';
+        speechTimeout = setTimeout(() => bubble.style.display = 'none', 1800);
+    }
+
+    function showNinjaSpeech(text) {
+        const bubble = document.getElementById('ninja-speech');
+        clearTimeout(ninjaSpeechTimeout);
+        bubble.innerText = text;
+        bubble.style.display = 'block';
+        ninjaSpeechTimeout = setTimeout(() => bubble.style.display = 'none', 1800);
+    }
+
+    /* =========================================
+       GLÜCKSRAD
+    ========================================= */
+    function getTodayString() { 
+        const d = new Date(); 
+        return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; 
+    }
+
+    function openWheel() {
+        initAudio(); 
+        document.getElementById('wheel-anim').classList.remove('wheel-error-shake'); 
+        document.getElementById('wheel-anim').style.transform = 'none';
+        
+        const today = getTodayString();
+        
+        if (appData.lastWheelDate === today) { 
+            document.getElementById('spin-btn').disabled = true; 
+            document.getElementById('spin-btn').innerText = T[currentLang].wheelSpinAgainTomorrow; 
+        } else { 
+            document.getElementById('spin-btn').disabled = false; 
+            document.getElementById('spin-btn').innerText = T[currentLang].wheelSpinBtn; 
+        }
+        document.getElementById('wheel-overlay').style.display = 'flex';
+    }
+
+    function closeWheel() { 
+        document.getElementById('wheel-overlay').style.display = 'none'; 
+    }
+
+    function spinWheel() {
+        const today = getTodayString();
+        
+        if (appData.lastWheelDate === today) { 
+            document.getElementById('wheel-anim').classList.add('wheel-error-shake'); 
+            setTimeout(() => document.getElementById('wheel-anim').classList.remove('wheel-error-shake'), 400); 
+            return; 
+        }
+        
+        document.getElementById('spin-btn').disabled = true; 
+        appData.lastWheelDate = today; 
+        saveAllData();
+        
+        playRetroSound('wheel'); 
+        const wheel = document.getElementById('wheel-anim'); 
+        wheel.style.transform = `rotate(${1800 + Math.floor(Math.random() * 360)}deg)`;
+        
+        setTimeout(() => {
+            const wp = T[currentLang].wheelPrizes;
+            const prizes = [ 
+                {txt: wp.coins5, action: () => appData.totalCoins += 5}, 
+                {txt: wp.bomb1, action: () => appData.inventory.bomb++}, 
+                {txt: wp.shield1, action: () => appData.inventory.shield++}, 
+                {txt: wp.hourglass1, action: () => appData.inventory.hourglass++}, 
+                {txt: wp.coins10, action: () => appData.totalCoins += 10} 
+            ];
+            // Herz nur als möglichen Gewinn anbieten, wenn das Maximum noch nicht erreicht ist
+            if ((appData.inventory.heart || 0) < MAX_HEART_INVENTORY) {
+                prizes.push({txt: wp.heart1, action: () => appData.inventory.heart = (appData.inventory.heart || 0) + 1});
+            }
+            const finalPrize = prizes[Math.floor(Math.random() * prizes.length)];
+            
+            finalPrize.action(); 
+            saveAllData(); 
+            playRetroSound('correct'); 
+            closeWheel();
+            
+            showRewardOverlay(T[currentLang].rewardWheelTitle, T[currentLang].rewardWheelBody(finalPrize.txt));
+        }, 3100);
+    }
+
+    /* =========================================
+       SHOP & ITEMS
+    ========================================= */
+    function updateShopUI() {
+        document.getElementById('shop-coins').innerText = '🪙 ' + appData.totalCoins;
+        // Zusätzliche Absicherung: Münzen-Anzeige im nächsten Frame nochmal setzen,
+        // falls es in manchen WebViews zu Rendering-Verzögerungen kommt.
+        requestAnimationFrame(() => {
+            const el = document.getElementById('shop-coins');
+            if (el) el.innerText = '🪙 ' + appData.totalCoins;
+        });
+        
+        for(let i=0; i<4; i++) {
+            let item = document.getElementById('skin-' + i);
+            if(item) {
+                item.className = 'shop-item';
+                if(appData.ownedSkins.includes(i)) { 
+                    item.classList.add('owned'); 
+                    item.querySelector('small').innerText = T[currentLang].ownedLabel; 
+                }
+                if(appData.equippedSkinIndex === i) { 
+                    item.classList.add('equipped'); 
+                    item.querySelector('small').innerText = T[currentLang].equippedLabel; 
+                }
+            }
+        }
+        // Kaufbare Items ausgrauen, wenn nicht leistbar (bzw. beim Herz: auch wenn Maximum erreicht)
+        const itemPrices = { bomb: 5, shield: 4, hourglass: 3 };
+        for (const key in itemPrices) {
+            const el = document.getElementById('item-' + key);
+            if (el) el.classList.toggle('unaffordable', appData.totalCoins < itemPrices[key]);
+        }
+        const heartEl = document.getElementById('item-heart');
+        if (heartEl) heartEl.classList.toggle('unaffordable', !canBuyHeart());
+        
+        document.getElementById('inventory-summary').innerText = `${T[currentLang].inventoryLabel} 💣${appData.inventory.bomb} | 🛡️${appData.inventory.shield} | ⏳${appData.inventory.hourglass} | ❤️${appData.inventory.heart || 0}`;
+    }
+
+    function buyItem(key, price) { 
+        if (appData.totalCoins >= price) { 
+            appData.totalCoins -= price; 
+            appData.inventory[key]++; 
+            saveAllData(); 
+            playRetroSound('item'); 
+            updateShopUI(); 
+            if(cameFromPause) updateUI(); 
+        } 
+    }
+    
+    function canBuyHeart() {
+        if (appData.totalCoins < 100) return false;
+        if (cameFromPause) return lives < MAX_LIVES;
+        return (appData.inventory.heart || 0) < MAX_HEART_INVENTORY;
+    }
+
+    function buyHeart() {
+        if (!canBuyHeart()) return;
+        
+        appData.totalCoins -= 100;
+        
+        if (cameFromPause) {
+            lives++;
+            saveGameProgress();
+        } else {
+            appData.inventory.heart = (appData.inventory.heart || 0) + 1;
+        }
+        
+        saveAllData();
+        playRetroSound('item');
+        updateShopUI();
+        if(cameFromPause) updateUI();
+    }
+
+    function buyOrEquipSkin(i, price) { 
+        if(appData.ownedSkins.includes(i)) { 
+            appData.equippedSkinIndex = i; 
+            saveAllData(); 
+            playRetroSound('item'); 
+        } else if(appData.totalCoins >= price) { 
+            appData.totalCoins -= price; 
+            appData.ownedSkins.push(i); 
+            appData.equippedSkinIndex = i; 
+            saveAllData(); 
+            playRetroSound('correct'); 
+        } 
+        updateShopUI(); 
+    }
+    
+    /* =========================================
+       PAUSE-SYSTEM
+    ========================================= */
+    function togglePause() { 
+        if (isPaused) { 
+            // Spiel läuft gerade wirklich pausiert -> normal fortsetzen
+            isPaused = false; 
+            pauseRequested = false; 
+            document.getElementById('pause-btn').classList.remove('pause-pending'); 
+            document.getElementById('pause-overlay').style.display = 'none'; 
+            startTimer(); 
+            updateUI(); 
+            return; 
+        } 
+        
+        // Pause kann jederzeit angefordert werden (auch während des Laufens oder mitten in einer Animation).
+        // Sie wird aber erst nach Abschluss der aktuellen Aufgabe wirklich angezeigt
+        // (verhindert den "Pause-Trick" zum Zeit-Umgehen).
+        pauseRequested = !pauseRequested; 
+        document.getElementById('pause-btn').classList.toggle('pause-pending', pauseRequested); 
+    }
+
+    function engagePause() {
+        isPaused = true; 
+        pauseRequested = false; 
+        document.getElementById('pause-btn').classList.remove('pause-pending'); 
+        clearInterval(timerInterval); 
+        document.getElementById('pause-overlay').style.display = 'flex'; 
+        updateUI(); 
+    }
+
+    function openShopFromPause() { 
+        cameFromPause = true; 
+        document.getElementById('shop-back-btn').innerText = T[currentLang].backToGameBtn; 
+        showScreen('shop-screen'); 
+    }
+
+    function closeShop() { 
+        document.getElementById('shop-back-btn').innerText = T[currentLang].backBtn; 
+        
+        if (cameFromPause) { 
+            cameFromPause = false; 
+            showScreen('game-screen'); 
+            document.getElementById('pause-overlay').style.display = 'flex'; 
+        } else { 
+            showScreen('start-screen'); 
+        } 
+    }
+
+    function exitToMainMenu() { 
+        clearInterval(timerInterval); 
+        isPaused = false; 
+        document.getElementById('pause-overlay').style.display = 'none'; 
+        saveGameProgress(); 
+        showScreen('start-screen'); 
+    }
+
+    /* =========================================
+       GAMEPLAY-LOGIK & EINGABE
+    ========================================= */
+    function pressKey(key) { 
+        if (isWaiting || isPaused) return; 
+        initAudio(); 
+        
+        const display = document.getElementById('touch-display-area'); 
+        
+        if (key === 'CLR') { 
+            currentInputStr = currentInputStr.slice(0, -1); 
+        } else { 
+            if (currentInputStr.length < 5) currentInputStr += key; 
+        } 
+        display.innerText = currentInputStr; 
+    }
+
+    function startGame() { 
+        // Die Intro-Sequenz wird bei jedem neuen Spiel gezeigt - passend zur gewählten Klassenstufe.
+        // (Klasse 1/2: die Prüfung beginnt; Klasse 3/4: die Prinzessin wurde bereits entführt)
+        const grade = document.getElementById('grade-select').value;
+        const slides = grade === '3-4' ? T[currentLang].introSlidesAdvanced : T[currentLang].introSlides;
+        showCutscene(slides, T[currentLang].promotionStartBtn, () => {
+            appData.introSeen = true;
+            saveAllData();
+            actuallyStartGame();
+        }, { growNinja: false });
+    }
+
+    function actuallyStartGame() { 
+        initAudio(); 
+        lives = BASE_LIVES; 
+        coins = 0; 
+        score = 0; 
+        isWaiting = false; 
+        currentEnemyCount = 1; 
+        shieldActive = false; 
+        isPaused = false; 
+        pauseRequested = false;
+        document.getElementById('pause-btn').classList.remove('pause-pending');
+        currentWorld = 1; 
+        bossHp = 0; 
+        comboStreak = 0; 
+        
+        // Jedes neue Spiel beginnt immer mit dem klassischen Ninja - 
+        // andere Outfits müssen im Shop erneut gekauft werden
+        appData.ownedSkins = [0]; 
+        appData.equippedSkinIndex = 0; 
+        
+        // Kompletter Frischstart bei "Neues Spiel": Münzen UND alle Items (Bomben, Schilde,
+        // Sanduhren, Herzen) werden zurückgesetzt, damit das Spiel fordernd bleibt und der
+        // Kopfrechnen-Lerneffekt erhalten bleibt. Als Starthilfe gibt es genau 1 Bombe.
+        appData.totalCoins = 0; 
+        appData.inventory = { bomb: 1, shield: 0, hourglass: 0, heart: 0 }; 
+        
+        saveAllData(); 
+        selectedGrade = document.getElementById('grade-select').value; 
+        localStorage.removeItem('mathwarrior_current_save'); 
+        
+        initGameplay(); 
+    }
+
+    function replayIntroStory() {
+        const grade = document.getElementById('grade-select').value;
+        const slides = grade === '3-4' ? T[currentLang].introSlidesAdvanced : T[currentLang].introSlides;
+        showCutscene(slides, T[currentLang].backBtn, () => {}, { growNinja: false });
+    }
+
+    function resumeGame() { 
+        initAudio(); 
+        const save = JSON.parse(localStorage.getItem('mathwarrior_current_save')); 
+        if (!save) return; 
+        
+        // FIX: Maximal-Leben (5) auch beim Weiterspielen einhalten. Es werden nur so viele
+        // gespeicherte Herzen verbraucht, wie noch Platz ist - der Rest bleibt im Inventar.
+        const heartsToUse = Math.min(appData.inventory.heart || 0, MAX_LIVES - save.lives);
+        lives = save.lives + Math.max(0, heartsToUse); 
+        appData.inventory.heart = (appData.inventory.heart || 0) - Math.max(0, heartsToUse); 
+        saveAllData(); 
+        coins = save.coins; 
+        score = save.score; 
+        currentEnemyCount = save.enemyCount; 
+        selectedGrade = save.grade; 
+        currentWorld = save.world || 1; 
+        bossHp = save.bossHp || 0; 
+        
+        shieldActive = false; 
+        isWaiting = false; 
+        isPaused = false; 
+        pauseRequested = false;
+        document.getElementById('pause-btn').classList.remove('pause-pending');
+        comboStreak = 0; 
+        
+        document.getElementById('grade-select').value = selectedGrade; 
+        initGameplay(); 
+    }
+
+    function saveGameProgress() { 
+        localStorage.setItem('mathwarrior_current_save', JSON.stringify({ lives, coins, score, enemyCount: currentEnemyCount, grade: selectedGrade, world: currentWorld, bossHp })); 
+    }
+
+    function initGameplay() { 
+        document.getElementById('shield-bubble').style.display = shieldActive ? 'block' : 'none'; 
+        updateUI(); 
+        setupEnvironment(true); 
+        spawnEnemy(); 
+        showScreen('game-screen'); 
+    }
+
+    function updateUI() {
+        document.getElementById('lives-display').innerText = '❤️ '.repeat(lives); 
+        // FIX: Im Spiel wird jetzt der Gesamt-Münzstand angezeigt (identisch mit dem Shop).
+        // Vorher wurden hier nur die Runden-Münzen angezeigt, wodurch Käufe im Shop
+        // scheinbar "nicht abgezogen" wurden.
+        document.getElementById('coins-display').innerText = '🪙 ' + appData.totalCoins; 
+        document.getElementById('score-display').innerText = '⭐ ' + score;
+        
+        const worldObj = worldsConfig[(currentWorld - 1) % worldsConfig.length];
+        document.getElementById('world-indicator').innerText = T[currentLang].waveLabel(T[currentLang].worldNames[worldObj.name] || worldObj.name, currentEnemyCount);
+        
+        document.getElementById('wave-progress-bar').style.width = (currentEnemyCount * 10) + '%';
+        
+        document.getElementById('hud-bomb-count').innerText = appData.inventory.bomb; 
+        document.getElementById('hud-shield-count').innerText = appData.inventory.shield; 
+        document.getElementById('hud-time-count').innerText = appData.inventory.hourglass;
+        
+        if(currentEnemyCount === 10 && bossHp > 0) { 
+            document.getElementById('boss-hp-container').style.display = 'block'; 
+            document.getElementById('boss-hearts').innerText = '❤️ '.repeat(bossHp); 
+        } else { 
+            document.getElementById('boss-hp-container').style.display = 'none'; 
+        }
+        
+        const disableButtons = isWaiting || isPaused;
+        document.getElementById('use-bomb-btn').disabled = appData.inventory.bomb <= 0 || disableButtons; 
+        document.getElementById('use-shield-btn').disabled = appData.inventory.shield <= 0 || shieldActive || disableButtons; 
+        document.getElementById('use-time-btn').disabled = appData.inventory.hourglass <= 0 || disableButtons; 
+        document.getElementById('attack-btn').disabled = disableButtons;
+    }
+
+    // Wählt zufällig aus einem Array, aber nie denselben Wert wie beim letzten Mal
+    function pickDifferent(arr, last) {
+        if (!arr || arr.length === 0) return '';
+        if (arr.length === 1) return arr[0];
+        let pick;
+        do { pick = arr[Math.floor(Math.random() * arr.length)]; } while (pick === last);
+        return pick;
+    }
+
+    function setupEnvironment(pickNewObject) {
+        const worldObj = worldsConfig[(currentWorld - 1) % worldsConfig.length];
+        
+        document.getElementById('game-screen').style.background = worldObj.sky;
+        document.getElementById('ground').style.backgroundColor = worldObj.ground;
+        document.getElementById('sky-decor').innerText = worldObj.skyObj; 
+        
+        if (pickNewObject) {
+            // Nie zweimal hintereinander dasselbe Objekt; zusätzlich ein zweites,
+            // kleineres Objekt im Hintergrund für mehr Tiefe und Abwechslung
+            lastSceneryObject = pickDifferent(worldObj.objects, lastSceneryObject);
+            document.getElementById('scenery-object').innerText = lastSceneryObject;
+            
+            lastSceneryFarObject = pickDifferent(worldObj.objects.filter(o => o !== lastSceneryObject), lastSceneryFarObject);
+            document.getElementById('scenery-object-far').innerText = lastSceneryFarObject;
+        }
+        
+        const ninja = document.getElementById('ninja');
+        const ninjaEmoji = document.getElementById('ninja-emoji');
+        let currentSkin = skins[appData.equippedSkinIndex]; 
+        ninja.style.filter = 'none';
+        
+        // Welt-spezifische Dekoration am Spielcharakter (z.B. Stinkewolke im Kanal, Papagei beim Piraten)
+        let decorHtml = '';
+        if (worldObj.ninjaDecor === 'stink') decorHtml = '<span class="ninja-decor-stink">💨</span>';
+        else if (worldObj.ninjaDecor === 'parrot') decorHtml = '<span class="ninja-decor-parrot">🦜</span>';
+        
+        if (worldObj.mode === 'fly') { 
+            ninja.className = 'character flying-ninja'; 
+            ninjaEmoji.innerHTML = `<span class="wing wing-left">🪽</span>${currentSkin}<span class="wing wing-right">🪽</span>`; 
+        } else if (worldObj.mode === 'swim') { 
+            ninja.className = 'character swimming-ninja'; 
+            // Pro Skin individuell kalibrierte Position/Größe der Tauchermaske (unterschiedliche Kopfformen)
+            const diveMaskStyles = [
+                'top:-25%; transform:translateX(-50%) scale(0.55);', // 🥷 Classic
+                'top:-22%; transform:translateX(-50%) scale(0.5);',  // 👺 Dämon
+                'top:-18%; transform:translateX(-50%) scale(0.6);',  // 🐯 Tiger
+                'top:-20%; transform:translateX(-50%) scale(0.55);'  // 🐱 Neko
+            ];
+            const maskStyle = diveMaskStyles[appData.equippedSkinIndex] || diveMaskStyles[0];
+            ninjaEmoji.innerHTML = `<span class="dive-mask" style="${maskStyle}">🤿</span>${currentSkin}<span class="dive-bubbles">🫧</span>`; 
+        } else if (worldObj.mode === 'ufo') { 
+            // Weltall: Der Ninja schwebt in seinem eigenen kleinen UFO
+            ninja.className = 'character flying-ninja'; 
+            ninjaEmoji.innerHTML = `${currentSkin}<span class="ninja-ufo">🛸</span>`; 
+        } else { 
+            ninja.className = 'character ninja-running'; 
+            ninjaEmoji.innerHTML = `${decorHtml}${currentSkin}`; 
+        }
+    }
+
+    function startWalking() {
+        document.getElementById('scenery').classList.add('walking');
+        document.getElementById('battle-indicator').style.display = 'none';
+    }
+
+    // FIX: Die Lauf-Animation läuft als Endlosschleife (~1,1s pro Durchlauf). Da die Laufphase
+    // ca. 3 Sekunden dauert, zog vorher DASSELBE Objekt 3-4 Mal hintereinander vorbei.
+    // Jetzt wird bei jeder Animations-Wiederholung ein neues, anderes Objekt eingesetzt -
+    // genau am Schleifenende, wo das Objekt unsichtbar ist (opacity 0), also ohne sichtbaren Sprung.
+    document.getElementById('scenery-object').addEventListener('animationiteration', (e) => {
+        if (e.animationName !== 'walkPastScenery') return;
+        const worldObj = worldsConfig[(currentWorld - 1) % worldsConfig.length];
+        lastSceneryObject = pickDifferent(worldObj.objects, lastSceneryObject);
+        e.target.innerText = lastSceneryObject;
+    });
+    document.getElementById('scenery-object-far').addEventListener('animationiteration', (e) => {
+        if (e.animationName !== 'walkPastSceneryFar') return;
+        const worldObj = worldsConfig[(currentWorld - 1) % worldsConfig.length];
+        lastSceneryFarObject = pickDifferent(worldObj.objects.filter(o => o !== lastSceneryObject), lastSceneryFarObject);
+        e.target.innerText = lastSceneryFarObject;
+    });
+
+    function stopWalking() {
+        document.getElementById('scenery').classList.remove('walking');
+        document.getElementById('battle-indicator').style.display = 'block';
+    }
+
+    function spawnEnemy() {
+        stopWalking();
+        
+        isWaiting = false; 
+        currentInputStr = ""; 
+        document.getElementById('touch-display-area').innerText = ""; 
+        document.getElementById('touch-display-area').className = "";
+        
+        const worldObj = worldsConfig[(currentWorld - 1) % worldsConfig.length];
+        const enemyWrapper = document.getElementById('enemy-wrapper');
+        const enemyObj = document.getElementById('enemy');
+        
+        enemyWrapper.className = 'character enemy-enter';
+        enemyObj.className = 'enemy-scale-' + Math.floor(Math.random() * 3);
+        enemyObj.style.filter = 'none';
+        
+        if(currentEnemyCount === 10) { 
+            enemyObj.innerText = worldObj.boss; 
+            enemyWrapper.classList.add('boss-character');
+            enemyObj.className = 'enemy-scale-1';
+            document.getElementById('boss-vignette').classList.add('active');
+            
+            if (bossHp === 0) { 
+                bossHp = worldObj.bossMaxHp; 
+                playRetroSound('boss'); 
+            }
+        } else { 
+            document.getElementById('boss-vignette').classList.remove('active');
+            // Kein separater Kampfstart-Sound mehr - der Tempowechsel der Musik übernimmt die Dramatik
+            lastEnemyEmoji = pickDifferent(worldObj.enemies, lastEnemyEmoji);
+            enemyObj.innerText = lastEnemyEmoji;
+            enemyObj.style.filter = `hue-rotate(${Math.floor(Math.random() * 360)}deg)`;
+            bossHp = 0;
+        }
+        
+        saveGameProgress(); 
+        generateQuestion(); 
+        updateUI(); 
+        
+        if (pauseRequested) { 
+            engagePause(); 
+        } else { 
+            startTimer(); 
+        }
+    }
+
+    // Wird nach einem Schild-Block genutzt: dieselbe Aufgabe nochmal stellen (mit vollem Timer),
+    // statt einen neuen Gegner zu erzeugen. So bleibt das Schild klar besser als die Bombe.
+    function retryCurrentQuestion() {
+        // FIX (Freeze-Bug): Der Spielzustand wird IMMER zuerst zurückgesetzt, bevor eine
+        // eventuell angeforderte Pause greift. Vorher blieb isWaiting=true hängen, wenn
+        // während des Schildbruchs eine Pause vorgemerkt war -> nach dem Fortsetzen waren
+        // alle Buttons dauerhaft gesperrt und der Timer lief nie wieder an (kompletter Freeze).
+        isWaiting = false; 
+        currentInputStr = ""; 
+        document.getElementById('touch-display-area').innerText = ""; 
+        document.getElementById('touch-display-area').className = ""; 
+        
+        const enemyWrapper = document.getElementById('enemy-wrapper');
+        enemyWrapper.className = enemyWrapper.className.includes('boss-character') ? 'character boss-character' : 'character';
+        
+        timeLeft = maxTime; 
+        updateUI(); 
+        
+        if (pauseRequested) { 
+            engagePause(); 
+            return; 
+        }
+        
+        startTimer(); 
+    }
+
+    function generateQuestion() {
+        let type, num1, num2; 
+        let diffMultiplier = 1 + (currentWorld * 0.15);
+        
+        if (selectedGrade === "1-2") {
+            let types = (currentEnemyCount >= 5) ? ['+', '-', '*'] : ['+', '-']; 
+            type = types[Math.floor(Math.random() * types.length)];
+            
+            if(type === '+') { 
+                num1 = Math.floor(Math.random() * (25 * diffMultiplier)) + 2; 
+                num2 = Math.floor(Math.random() * (25 * diffMultiplier)) + 1; 
+                currentAnswer = num1 + num2; 
+            } else if(type === '-') { 
+                num1 = Math.floor(Math.random() * (35 * diffMultiplier)) + 5; 
+                num2 = Math.floor(Math.random() * num1); 
+                currentAnswer = num1 - num2; 
+            } else { 
+                // FIX: Kleines Einmaleins für Klasse 1/2 sichergestellt
+                const rows = [2, 3, 4, 5, 10]; 
+                num1 = rows[Math.floor(Math.random() * rows.length)]; 
+                num2 = Math.floor(Math.random() * 10) + 1; // Maximal bis 10
+                currentAnswer = num1 * num2; 
+            }
+            
+            maxTime = 18; 
+            let prefix = (currentEnemyCount === 10) ? '👑 ' : '';
+            document.getElementById('question').innerText = `${prefix}${num1} ${type === '*' ? '×' : type} ${num2} = ?`;
+
+        } else {
+            if(currentEnemyCount === 10) { 
+                maxTime = 15;
+                if (currentWorld >= 5) { 
+                    let a = Math.floor(Math.random()*(6*diffMultiplier))+3; 
+                    let b = Math.floor(Math.random()*(5*diffMultiplier))+2; 
+                    let c = Math.floor(Math.random()*(30*diffMultiplier))+5; 
+                    currentAnswer = (a*b)+c; 
+                    document.getElementById('question').innerText = `👑 (${a} × ${b}) + ${c} = ?`; 
+                } else { 
+                    let bType = ['+', '-', '*'][Math.floor(Math.random() * 3)];
+                    
+                    if(bType === '+') { 
+                        num1 = Math.floor(Math.random() * (200 * diffMultiplier)) + 100; 
+                        num2 = Math.floor(Math.random() * (200 * diffMultiplier)) + 100; 
+                        currentAnswer = num1 + num2; 
+                    } else if(bType === '-') { 
+                        num1 = Math.floor(Math.random() * (400 * diffMultiplier)) + 150; 
+                        num2 = Math.floor(Math.random() * num1); 
+                        currentAnswer = num1 - num2; 
+                    } else { 
+                        num1 = Math.floor(Math.random() * (12 * diffMultiplier)) + 3; 
+                        num2 = Math.floor(Math.random() * (10 * diffMultiplier)) + 3; 
+                        currentAnswer = num1 * num2; 
+                    }
+                    
+                    document.getElementById('question').innerText = `👑 ${num1} ${bType === '*' ? '×' : bType} ${num2} = ?`;
+                }
+                maxTime = Math.floor(maxTime * 0.85); 
+                timeLeft = maxTime; 
+                return;
+            }
+            
+            let types = ['+', '-', '*', '/']; 
+            type = types[Math.floor(Math.random() * types.length)];
+            
+            if(type === '+') { 
+                if (currentWorld <= 4) {
+                    // Sanfterer Einstieg in Klasse 3/4: schwerer als Klasse 1/2, aber noch nicht die volle Wucht
+                    num1 = Math.floor(Math.random() * (60 * diffMultiplier)) + 20; 
+                    num2 = Math.floor(Math.random() * (60 * diffMultiplier)) + 20; 
+                } else {
+                    num1 = Math.floor(Math.random() * (250 * diffMultiplier)) + 50; 
+                    num2 = Math.floor(Math.random() * (250 * diffMultiplier)) + 50; 
+                }
+                currentAnswer = num1 + num2; 
+            } else if(type === '-') { 
+                if (currentWorld <= 4) {
+                    num1 = Math.floor(Math.random() * (100 * diffMultiplier)) + 40; 
+                    num2 = Math.floor(Math.random() * num1); 
+                } else {
+                    num1 = Math.floor(Math.random() * (400 * diffMultiplier)) + 100; 
+                    num2 = Math.floor(Math.random() * num1); 
+                }
+                currentAnswer = num1 - num2; 
+            } else if(type === '*') { 
+                num1 = Math.floor(Math.random() * (12 * diffMultiplier)) + 2; 
+                num2 = Math.floor(Math.random() * (10 * diffMultiplier)) + 1; 
+                currentAnswer = num1 * num2; 
+            } else if (type === '/') { 
+                num2 = Math.floor(Math.random() * 8) + 2; 
+                currentAnswer = Math.floor(Math.random() * Math.min(15, Math.floor(10 * diffMultiplier))) + 1; 
+                num1 = num2 * currentAnswer; 
+            }
+            
+            document.getElementById('question').innerText = `${num1} ${type === '*' ? '×' : (type === '/' ? ':' : type)} ${num2} = ?`; 
+            maxTime = 14;
+        }
+        timeLeft = maxTime;
+    }
+
+    function startTimer() { 
+        clearInterval(timerInterval); 
+        const timerBar = document.getElementById('timer-bar'); 
+        timerBar.classList.remove('timer-warning', 'timer-critical', 'timer-critical-boss');
+        timerBar.style.backgroundColor = (currentEnemyCount === 10) ? '#ff4757' : '#4cd137'; 
+        
+        timerInterval = setInterval(() => { 
+            if (isWaiting || isPaused) return; 
+            
+            timeLeft -= 0.1; 
+            const ratio = timeLeft / maxTime;
+            timerBar.style.width = ratio * 100 + '%'; 
+            
+            timerBar.classList.remove('timer-warning', 'timer-critical', 'timer-critical-boss');
+            if (ratio <= 0.15) {
+                timerBar.classList.add('timer-critical');
+                if (currentEnemyCount === 10) timerBar.classList.add('timer-critical-boss');
+            } else if (ratio <= 0.35) {
+                timerBar.classList.add('timer-warning');
+            }
+            
+            if (timeLeft <= 0) { 
+                triggerHit(true); 
+            } 
+        }, 100); 
+    }
+
+    function showItemEffect(emoji, duration, callback) {
+        const el = document.getElementById('item-effect');
+        el.innerText = emoji;
+        el.classList.remove('item-pop');
+        void el.offsetWidth; // Reflow erzwingen, damit die Animation bei erneutem Einsatz neu startet
+        el.classList.add('item-pop');
+        
+        setTimeout(() => {
+            el.classList.remove('item-pop');
+            if (callback) callback();
+        }, duration);
+    }
+
+    function useBomb() { 
+        if(!isWaiting && !isPaused && appData.inventory.bomb > 0) { 
+            appData.inventory.bomb--; 
+            saveAllData(); 
+            playRetroSound('item');
+            isWaiting = true; 
+            updateUI(); 
+            
+            showItemEffect('💣', 500, () => {
+                isWaiting = false; 
+                currentInputStr = currentAnswer.toString(); 
+                document.getElementById('touch-display-area').innerText = currentInputStr; 
+                checkAnswer(); 
+            });
+        } 
+    }
+
+    function useShield() { 
+        if(!isWaiting && !isPaused && appData.inventory.shield > 0 && !shieldActive) { 
+            appData.inventory.shield--; 
+            saveAllData(); 
+            playRetroSound('item');
+            
+            showItemEffect('🛡️', 500, () => {
+                shieldActive = true; 
+                document.getElementById('shield-bubble').style.display = 'block'; 
+                updateUI(); 
+            });
+        } 
+    }
+
+    function useHourglass() { 
+        if(!isWaiting && !isPaused && appData.inventory.hourglass > 0) { 
+            appData.inventory.hourglass--; 
+            saveAllData(); 
+            playRetroSound('item'); 
+            timeLeft = maxTime; 
+            
+            showItemEffect('⏳', 500);
+            
+            const timerBar = document.getElementById('timer-bar');
+            timerBar.classList.remove('timer-warning', 'timer-critical');
+            timerBar.classList.add('timer-hourglass-flash');
+            setTimeout(() => timerBar.classList.remove('timer-hourglass-flash'), 500);
+            
+            updateUI(); 
+        } 
+    }
+
+    function checkAnswer() { 
+        if (isWaiting || isPaused) return; 
+        
+        const userAnswer = parseInt(currentInputStr); 
+        if (isNaN(userAnswer)) return; 
+        
+        clearInterval(timerInterval); 
+        isWaiting = true; 
+        updateUI(); 
+        
+        if (userAnswer === currentAnswer) {
+            handleVictory(); 
+        } else {
+            triggerHit(false); 
+        }
+    }
+
+    function handleVictory() {
+        const worldObj = worldsConfig[(currentWorld - 1) % worldsConfig.length];
+        const ninja = document.getElementById('ninja'); 
+        const enemyWrapper = document.getElementById('enemy-wrapper'); 
+        
+        playRetroSound('correct'); 
+        document.getElementById('touch-display-area').classList.add('correct-flash');
+        
+        let oldClass = ninja.className; 
+        ninja.className = 'character ninja-attacking';
+        
+        setTimeout(() => { 
+            document.getElementById('hit-effect').style.display = 'block'; 
+            document.getElementById('hit-effect').style.left = '40%'; 
+            document.getElementById('hit-effect').style.bottom = '70px'; 
+            
+            if(currentEnemyCount === 10) { 
+                bossHp--; 
+                updateUI(); 
+            } 
+        }, 150);
+        
+        setTimeout(() => {
+            document.getElementById('hit-effect').style.display = 'none';
+        }, 450);
+        
+        setTimeout(() => {
+            ninja.className = oldClass; 
+            
+            if (currentEnemyCount === 10 && bossHp > 0) {
+                document.getElementById('question').innerText = T[currentLang].criticalHit;
+                spawnParticles(worldObj.particleType, 3);
+                showMonsterSpeech(worldObj.dialogue[currentLang].hit[Math.floor(Math.random() * worldObj.dialogue[currentLang].hit.length)]);
+                
+                setTimeout(() => { 
+                    isWaiting = false; 
+                    currentInputStr = ""; 
+                    document.getElementById('touch-display-area').innerText = ""; 
+                    document.getElementById('touch-display-area').classList.remove('correct-flash');
+                    generateQuestion(); 
+                    updateUI();
+                    
+                    if (pauseRequested) { 
+                        engagePause(); 
+                    } else { 
+                        startTimer(); 
+                    }
+                }, 1000);
+            } else {
+                enemyWrapper.className = enemyWrapper.className.includes('boss-character') ? 'character enemy-die boss-character' : 'character enemy-die';
+                
+                // Ab jetzt "läuft" die Welt weiter (Boden + Hintergrund-Objekt), bis der nächste Gegner erscheint
+                setupEnvironment(true); 
+                startWalking();
+                
+                comboStreak++; 
+                coins += (currentEnemyCount === 10) ? 10 : (comboStreak >= 3 ? 2 : 1); 
+                appData.totalCoins += (currentEnemyCount === 10) ? 10 : (comboStreak >= 3 ? 2 : 1); 
+                score += (currentEnemyCount === 10) ? 100 : 10;
+                
+                saveAllData(); 
+                updateUI();
+                
+                spawnParticles(worldObj.particleType, 5);
+                if (currentEnemyCount === 10) {
+                    showMonsterSpeech(worldObj.dialogue[currentLang].bossDefeat);
+                } else {
+                    showMonsterSpeech(worldObj.dialogue[currentLang].win[Math.floor(Math.random() * worldObj.dialogue[currentLang].win.length)]);
+                }
+                if (comboStreak >= 3 && currentEnemyCount !== 10) {
+                    showNinjaSpeech(T[currentLang].comboPhrases[Math.floor(Math.random() * T[currentLang].comboPhrases.length)]);
+                }
+                
+                document.getElementById('question').innerText = T[currentLang].correctText(comboStreak >= 3 && currentEnemyCount !== 10 ? comboStreak : null);
+                
+                setTimeout(() => { 
+                    if(currentEnemyCount === 10) {
+                        worldCompleted(); 
+                    } else { 
+                        currentEnemyCount++; 
+                        spawnEnemy(); 
+                    } 
+                }, 3100);
+            }
+        }, 600);
+    }
+
+    function worldCompleted() { 
+        clearInterval(timerInterval); 
+        playRetroSound('worldclear'); 
+        stopWalking();
+        
+        // Eine eventuell noch vorgemerkte Pause verwerfen, damit die nächste Welt sauber startet
+        pauseRequested = false;
+        document.getElementById('pause-btn').classList.remove('pause-pending');
+        
+        if (currentWorld >= 12 && selectedGrade === "1-2") { 
+            saveAllData(); 
+            saveGameProgress(); 
+            showGradePromotion(); 
+            return; 
+        } 
+        
+        if (currentWorld >= 12 && selectedGrade === "3-4" && !appData.storyCompleted) { 
+            saveAllData(); 
+            saveGameProgress(); 
+            showStoryEnding(); 
+            return; 
+        } 
+        
+        let message; 
+        
+        if (selectedGrade === "3-4" && appData.storyCompleted) { 
+            // Wächter-Modus: Die nächste Welt wird zufällig gewählt (Endlos-Modus nach Abschluss der Story),
+            // aber nie dieselbe Welt zweimal hintereinander
+            let nextWorld;
+            do { nextWorld = Math.floor(Math.random() * 12) + 1; } while (nextWorld === currentWorld);
+            currentWorld = nextWorld; 
+            const nextWorldObj = worldsConfig[(currentWorld - 1) % worldsConfig.length];
+            const nextWorldName = T[currentLang].worldNames[nextWorldObj.name] || nextWorldObj.name;
+            message = T[currentLang].guardianModeMsg + "\n➡️ " + nextWorldName; 
+        } else { 
+            message = T[currentLang].worldCompletedMsg(currentWorld); 
+            currentWorld++; 
+        } 
+        
+        saveAllData(); 
+        currentEnemyCount = 1; 
+        bossHp = 0; 
+        saveGameProgress(); 
+        
+        document.getElementById('next-level-text').innerText = message; 
+        document.getElementById('next-level-overlay').style.display = 'flex'; 
+    }
+
+    function startNextWorldDirectly() { 
+        document.getElementById('next-level-overlay').style.display = 'none'; 
+        initGameplay(); 
+    }
+
+    /* =========================================
+       STORY-ZWISCHENSEQUENZEN (Intro, Klassenaufstieg, Finale)
+    ========================================= */
+    let cutsceneStep = 0;
+    let cutsceneSlides = [];
+    let cutsceneOnFinish = null;
+    let cutsceneGrowNinja = false;
+    let cutsceneFinalBtnText = '';
+
+    function showCutscene(slides, finalBtnText, onFinish, options) {
+        options = options || {};
+        cutsceneSlides = slides;
+        cutsceneStep = 0;
+        cutsceneOnFinish = onFinish;
+        cutsceneGrowNinja = !!options.growNinja;
+        cutsceneFinalBtnText = finalBtnText;
+        renderCutsceneSlide();
+        document.getElementById('promotion-overlay').style.display = 'flex';
+    }
+
+    function renderCutsceneSlide() {
+        const slide = cutsceneSlides[cutsceneStep];
+        const isLast = cutsceneStep === cutsceneSlides.length - 1;
+        
+        const emojiEl = document.getElementById('promotion-emoji');
+        emojiEl.innerText = slide.emoji || skins[appData.equippedSkinIndex];
+        emojiEl.style.fontSize = cutsceneGrowNinja ? (90 + cutsceneStep * 25) + 'px' : '90px';
+        
+        document.getElementById('promotion-title').innerText = slide.title;
+        document.getElementById('promotion-text').innerText = slide.text;
+        document.getElementById('promotion-next-btn').innerText = isLast ? cutsceneFinalBtnText : T[currentLang].nextBtn;
+    }
+
+    function nextCutsceneSlide() {
+        if (cutsceneStep < cutsceneSlides.length - 1) {
+            cutsceneStep++;
+            renderCutsceneSlide();
+        } else {
+            document.getElementById('promotion-overlay').style.display = 'none';
+            if (cutsceneOnFinish) cutsceneOnFinish();
+        }
+    }
+
+    function showGradePromotion() {
+        showCutscene(T[currentLang].promotionSlides, T[currentLang].promotionStartBtn, () => {
+            selectedGrade = "3-4"; 
+            document.getElementById('grade-select').value = "3-4"; 
+            currentWorld = 1; 
+            currentEnemyCount = 1; 
+            bossHp = 0; 
+            
+            saveAllData(); 
+            saveGameProgress(); 
+            initGameplay(); 
+        }, { growNinja: true });
+    }
+
+    function showStoryEnding() {
+        showCutscene(T[currentLang].storyEndingSlides, T[currentLang].guardianStartBtn, () => {
+            appData.storyCompleted = true; 
+            currentWorld = Math.floor(Math.random() * 12) + 1; 
+            currentEnemyCount = 1; 
+            bossHp = 0; 
+            
+            saveAllData(); 
+            saveGameProgress(); 
+            initGameplay(); 
+        }, { growNinja: false });
+    }
+
+    function triggerHit(isTimeOut) {
+        clearInterval(timerInterval); 
+        isWaiting = true; 
+        updateUI();
+        
+        const worldObj = worldsConfig[(currentWorld - 1) % worldsConfig.length];
+        const ninja = document.getElementById('ninja'); 
+        const enemyWrapper = document.getElementById('enemy-wrapper'); 
+        let oldClass = ninja.className;
+        
+        document.getElementById('game-container').classList.add('shake-effect'); 
+        setTimeout(() => document.getElementById('game-container').classList.remove('shake-effect'), 400);
+        
+        comboStreak = 0; 
+        document.getElementById('touch-display-area').classList.add('wrong-flash');
+
+        if (shieldActive) {
+            shieldActive = false; 
+            document.getElementById('shield-bubble').style.display = 'none';
+            document.getElementById('question').innerText = T[currentLang].shieldBroken; 
+            playRetroSound('shieldbreak');
+            
+            // Der Gegner greift sichtbar an - der Treffer wird aber vom Schild geblockt
+            enemyWrapper.className = enemyWrapper.className.includes('boss-character') ? 'character enemy-attack boss-character' : 'character enemy-attack';
+            
+            setTimeout(() => retryCurrentQuestion(), 1200);
+        } else {
+            document.getElementById('lives-display').classList.add('lives-hit'); 
+            setTimeout(() => document.getElementById('lives-display').classList.remove('lives-hit'), 1200);
+            
+            const feedbackText = isTimeOut ? T[currentLang].timeUp : T[currentLang].wrongAnswer;
+            document.getElementById('question').innerHTML = `<span style="color:#ff4757;">${feedbackText} (${currentAnswer})</span>`; 
+            playRetroSound('hit');
+            
+            showMonsterSpeech(worldObj.dialogue[currentLang].lose[Math.floor(Math.random() * worldObj.dialogue[currentLang].lose.length)]);
+            spawnParticles('sparks', 3);
+            
+            enemyWrapper.className = enemyWrapper.className.includes('boss-character') ? 'character enemy-attack boss-character' : 'character enemy-attack';
+            
+            setTimeout(() => { 
+                ninja.className = 'character ninja-hit'; 
+                lives -= 1; 
+                // Vibration nur bei tatsächlichem Lebensverlust (nicht beim Schild-Block)
+                if (navigator.vibrate) { try { navigator.vibrate(200); } catch(e) {} }
+                updateUI(); 
+            }, 250);
+            
+            setTimeout(() => { 
+                if (lives <= 0) {
+                    gameOver(); 
+                } else { 
+                    ninja.className = oldClass; 
+                    spawnEnemy(); 
+                } 
+            }, 2200); 
+        }
+    }
+
+    function gameOver() { 
+        clearInterval(timerInterval); 
+        pauseRequested = false;
+        document.getElementById('pause-btn').classList.remove('pause-pending');
+        localStorage.removeItem('mathwarrior_current_save'); 
+        
+        appData.inventory = { bomb: 1, shield: 0, hourglass: 0, heart: 0 };
+        saveAllData();
+        
+        document.getElementById('final-score').innerText = T[currentLang].finalScoreTemplate(score, coins); 
+        
+        const gradeList = appData.highscores[selectedGrade] || [];
+        if (score > 0 && (gradeList.length < 10 || score > gradeList[gradeList.length - 1].score)) {
+            document.getElementById('highscore-input-zone').style.display = 'block'; 
+        } else {
+            document.getElementById('highscore-input-zone').style.display = 'none'; 
+        }
+        
+        showScreen('game-over-screen'); 
+    }
+
+    function saveHighscore() { 
+        const name = document.getElementById('player-name').value.trim() || "Ninja"; 
+        if (!appData.highscores[selectedGrade]) appData.highscores[selectedGrade] = [];
+        appData.highscores[selectedGrade].push({name: name, score: score}); 
+        
+        appData.highscores[selectedGrade].sort((a, b) => b.score - a.score); 
+        appData.highscores[selectedGrade] = appData.highscores[selectedGrade].slice(0, 10); 
+        
+        highscoreTab = selectedGrade; // Nach dem Speichern direkt die passende Klassen-Liste anzeigen
+        saveAllData(); 
+        showScreen('highscore-screen'); 
+    }
+
+    function displayHighscores() { 
+        document.getElementById('hs-tab-12').classList.toggle('active-tab', highscoreTab === '1-2');
+        document.getElementById('hs-tab-34').classList.toggle('active-tab', highscoreTab === '3-4');
+        
+        const list = document.getElementById('highscore-list'); 
+        list.innerHTML = ''; 
+        
+        (appData.highscores[highscoreTab] || []).forEach(e => { 
+            let li = document.createElement('li'); 
+            
+            let strong = document.createElement('strong');
+            strong.textContent = e.name;
+            
+            li.appendChild(strong);
+            li.appendChild(document.createTextNode(T[currentLang].highscoreEntry(e.score)));
+            
+            list.appendChild(li); 
+        }); 
+    }
+
+    function showRewardOverlay(title, text) { 
+        document.getElementById('reward-title').innerText = title; 
+        document.getElementById('reward-text').innerText = text; 
+        document.getElementById('reward-overlay').style.display = 'flex'; 
+    }
+
+    function closeRewardOverlay() { 
+        document.getElementById('reward-overlay').style.display = 'none'; 
+    }
+
+    /* =========================================
+       PWA: SERVICE WORKER (Offline & Installation über Chrome)
+    ========================================= */
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            // Fehler bewusst ignorieren: In der Capacitor-APK oder bei file:// ist kein SW nötig
+            navigator.serviceWorker.register('sw.js').catch(() => {});
+        });
+    }
+</script>
+</body>
+</html>
