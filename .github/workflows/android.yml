@@ -48,13 +48,6 @@ jobs:
         }
         EOF
 
-    - name: Generate App Icon from image.png
-      run: |
-        npm install @capacitor/assets --save-dev
-        mkdir -p assets
-        cp image.png assets/icon.png
-        npx capacitor-assets generate --android --iconBackgroundColor '#111111' --iconBackgroundColorDark '#111111'
-
     - name: Build APK
       run: |
         cd android
