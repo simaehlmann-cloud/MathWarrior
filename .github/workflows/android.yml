@@ -40,6 +40,10 @@ jobs:
 
     - name: Generate App Icons & Splash Screen
       run: |
+        # ImageMagick ist auf den GitHub-Runnern nicht mehr vorinstalliert -> nachinstallieren
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq imagemagick
+
         # Quellbilder für das offizielle Capacitor-Assets-Tool vorbereiten.
         # Ausgangsbild ist image.png (mind. 1024x1024 nötig).
         mkdir -p assets
