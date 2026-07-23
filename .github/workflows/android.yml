@@ -38,32 +38,6 @@ jobs:
         npx cap init MathWarrior com.simon.mathwarrior --web-dir www
         npx cap add android
 
-    - name: Generate App Icons & Splash Screen
-      run: |
-        # ImageMagick ist auf den GitHub-Runnern nicht mehr vorinstalliert -> nachinstallieren
-        sudo apt-get update -qq
-        sudo apt-get install -y -qq imagemagick
-
-        # Quellbilder für das offizielle Capacitor-Assets-Tool vorbereiten.
-        # Ausgangsbild ist image.png (mind. 1024x1024 nötig).
-        mkdir -p assets
-
-        # Klassisches Icon (ältere Android-Versionen): volle Fläche
-        convert image.png -resize 1024x1024^ -gravity center -extent 1024x1024 assets/icon-only.png
-
-        # Adaptives Icon (Android 8+): Hintergrund + Vordergrund getrennt.
-        # Das Logo wird auf ca. 66% verkleinert, damit es in der "sicheren Zone"
-        # liegt und beim runden Zuschneiden nicht abgeschnitten wird.
-        convert -size 1024x1024 xc:"#111111" PNG24:assets/icon-background.png
-        convert -size 1024x1024 xc:none \( image.png -resize 660x660 \) -gravity center -composite assets/icon-foreground.png
-
-        # Splashscreen: Logo mittig auf dunklem Hintergrund (passend zur App)
-        convert -size 2732x2732 xc:"#111111" \( image.png -resize 1200x1200 \) -gravity center -composite assets/splash.png
-        cp assets/splash.png assets/splash-dark.png
-
-        # Erzeugt alle benötigten mipmap-Größen direkt im Android-Projekt
-        npx @capacitor/assets generate --android
-
     - name: Fix duplicate Kotlin stdlib classes
       run: |
         cat >> android/app/build.gradle << 'EOF'
@@ -74,14 +48,55 @@ jobs:
         }
         EOF
 
-    - name: Build APK
+    - name: Build Debug APK
       run: |
         cd android
         chmod +x gradlew
         ./gradlew clean assembleDebug
 
-    - name: Upload APK
+    - name: Upload Debug APK
       uses: actions/upload-artifact@v4
       with:
         name: MathWarrior-APK
         path: android/app/build/outputs/apk/debug/app-debug.apk
+
+    - name: Decode Keystore
+      run: |
+        echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/app/release.keystore
+
+    - name: Configure Signing & Version in build.gradle
+      run: |
+        cat >> android/app/build.gradle << EOF
+
+        android.signingConfigs {
+            release {
+                storeFile file("release.keystore")
+                storePassword System.getenv("KEYSTORE_PASSWORD")
+                keyAlias System.getenv("KEY_ALIAS")
+                keyPassword System.getenv("KEY_PASSWORD")
+            }
+        }
+        android.buildTypes.release.signingConfig = android.signingConfigs.release
+        android.defaultConfig.versionCode = Integer.parseInt(System.getenv("VERSION_CODE") ?: "1")
+        android.defaultConfig.versionName = "1.0." + (System.getenv("VERSION_CODE") ?: "1")
+        EOF
+
+    - name: Build Signed Release AAB
+      env:
+        KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        VERSION_CODE: ${{ github.run_number }}
+      run: |
+        cd android
+        ./gradlew clean bundleRelease
+
+    - name: Upload Release AAB
+      uses: actions/upload-artifact@v4
+      with:
+        name: MathWarrior-AAB-Release
+        path: android/app/build/outputs/bundle/release/app-release.aab
+
+    - name: Remove Keystore File
+      if: always()
+      run: rm -f android/app/release.keystore
