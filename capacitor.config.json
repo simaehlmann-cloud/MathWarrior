@@ -1,0 +1,15 @@
+{
+  "appId": "com.simon.mathwarrior",
+  "appName": "MathWarrior",
+  "webDir": "www",
+  "backgroundColor": "#111111",
+  "android": {
+    "backgroundColor": "#111111"
+  },
+  "plugins": {
+    "SystemBars": {
+      "insetsHandling": "css",
+      "style": "DARK"
+    }
+  }
+}
