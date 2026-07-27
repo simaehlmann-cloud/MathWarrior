@@ -1,0 +1,2624 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>MathWarrior: Ultimate Touch Edition</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="icon-192.png">
+    
+    <style>
+        /* =========================================
+           BASIS-STYLING
+        ========================================= */
+        * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
+        body { margin: 0; padding: 0; background-color: #111; color: white; display: flex; justify-content: center; align-items: center; height: 100svh; overflow: hidden; }
+        /* Höhe der System-Statusleiste (Uhr/Akku) und der Navigationsleiste unten.
+           Werte kommen ab Capacitor 8 direkt vom System - kein Raten mehr nötig. */
+        :root {
+            /* Capacitor 8 (SystemBars-Plugin) schreibt die echten Werte in --safe-area-inset-*.
+               env(...) dient als Rueckfallebene fuer den normalen Browser / iOS. */
+            --safe-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+            --safe-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+        }
+        /* Der schwarze obere Rand hält den kompletten Spielinhalt aus der Statusleiste heraus.
+           Als BORDER (nicht padding), weil absolut positionierte Elemente wie die obere
+           Leiste mit dem Pause-Button sonst trotzdem unter der Statusleiste liegen würden. */
+        #game-container { width: 100%; max-width: 600px; height: 100svh; max-height: 850px; background: #222; position: relative; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border-top: var(--safe-top) solid #000; border-bottom: var(--safe-bottom) solid #000; }
+        
+        /* =========================================
+           SCREENS & OVERLAYS
+        ========================================= */
+        .screen { position: absolute; width: 100%; height: 100%; display: none; flex-direction: column; align-items: center; justify-content: center; padding: 20px; text-align: center; z-index: 10; background: #222; }
+        .active { display: flex; }
+        
+        /* =========================================
+           BUTTONS & CONTROLS
+        ========================================= */
+        button { background: #ff4757; color: white; border: none; padding: 12px 24px; font-size: 18px; margin: 8px; cursor: pointer; border-radius: 8px; font-weight: bold; transition: 0.1s; box-shadow: 0 4px 0 #cf2131; }
+        button:active { transform: translateY(2px); box-shadow: none; }
+        button:disabled { opacity: 0.3; cursor: not-allowed; box-shadow: none !important; transform: none !important; }
+        
+        .load-btn { background: #2ecc71; box-shadow: 0 4px 0 #219a52; }
+        .pause-btn { background: #eccc68; color: #111; box-shadow: 0 4px 0 #b38f2e; padding: 6px 12px; font-size: 14px; margin: 0; }
+        .btn-shop { background: #3498db; box-shadow: 0 4px 0 #2471a3; }
+        .btn-wheel { background: #f39c12; box-shadow: 0 4px 0 #b9770e; }
+        .btn-highscore { background: #9b59b6; box-shadow: 0 4px 0 #76448a; }
+        
+        .mute-toggle { background: #4b5563; box-shadow: 0 3px 0 #374151; padding: 8px 12px; font-size: 16px; margin: 0; border-radius: 20px; }
+        .global-mute { position: absolute; top: 15px; right: 15px; border-radius: 50%; z-index: 100; }
+
+        select { font-size: 18px; padding: 10px; border-radius: 8px; background: #2f3542; color: white; border: 2px solid #ffd32a; margin: 10px; width: 80%; max-width: 300px; text-align: center; }
+        h1 { color: #ffd32a; font-size: 38px; margin-bottom: 5px; text-shadow: 2px 2px 0px #000; letter-spacing: 1px; }
+        .artwork { font-size: 60px; margin: 10px 0; animation: bounce 2s infinite ease-in-out; }
+        
+        /* =========================================
+           GAMEPLAY SCREEN & UI
+        ========================================= */
+        #game-screen { display: none; background: #111; padding: 0; position: relative; }
+        #game-screen.active { display: block; }
+        #ui-bar { width: 100%; display: flex; justify-content: space-between; align-items: center; font-size: 14px; font-weight: bold; background: rgba(0,0,0,0.7); padding: 10px 15px; position: absolute; top: 0; left: 0; z-index: 20; border-bottom: 2px solid #ffd32a; }
+        
+        #lives-display { transition: transform 0.2s; display: inline-block; }
+        .lives-hit { animation: heartDistress 0.4s ease-in-out 3; color: #ff4757; }
+
+        #wave-progress-container { width: 100%; height: 4px; background: #111; position: absolute; top: 41px; left: 0; z-index: 21; }
+        #wave-progress-bar { width: 10%; height: 100%; background: #ffd32a; transition: width 0.3s ease; }
+
+        /* =========================================
+           SCENERY & PARTICLES & DIALOGS
+        ========================================= */
+        #scenery { width: 100%; height: 42%; position: relative; overflow: hidden; }
+        #sky-decor { position: absolute; top: 60px; right: 40px; font-size: 40px; }
+
+        /* Feste Welt-Kulisse direkt über dem Boden (z. B. Hochhäuser in der Straße,
+           Bergkette im Vulkan). Bewusst blass und leicht verdunkelt, damit Gegner und
+           Spielfigur klar davor stehen. Bewegt sich nicht mit - sie ist "weit weg". */
+        #backdrop {
+            position: absolute; bottom: 32px; left: -5%; width: 110%; z-index: 0;
+            font-size: 38px; line-height: 1; letter-spacing: 14px; white-space: nowrap;
+            text-align: center; opacity: 0.30; filter: brightness(0.6) saturate(0.7);
+            pointer-events: none; overflow: hidden;
+        }
+        
+        /* Animierter Laufboden - läuft nur zwischen den Kämpfen (siehe .walking-Klasse), nicht während des Kampfes */
+        #ground { 
+            width: 100%; height: 40px; position: absolute; bottom: 0; left: 0; z-index: 2;
+            background-image: repeating-linear-gradient(90deg, rgba(0,0,0,0.15) 0px, rgba(0,0,0,0.15) 20px, transparent 20px, transparent 40px);
+            background-size: 40px 100%;
+        }
+        #scenery.walking #ground { animation: scrollGround 0.5s linear infinite; }
+        
+        #particles-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 3; }
+        .particle { position: absolute; font-size: 20px; animation: floatUp 1.5s linear forwards; }
+        
+        #monster-speech { position: absolute; top: 70px; right: 20px; background: white; color: black; padding: 6px 12px; border-radius: 12px; font-size: 13px; font-weight: bold; display: none; z-index: 10; border: 2px solid #ffd32a; box-shadow: 0 4px 10px rgba(0,0,0,0.5); max-width: 150px; text-align: center; }
+        #monster-speech::after { content: ''; position: absolute; bottom: -8px; left: 20px; border-width: 8px 8px 0; border-style: solid; border-color: white transparent; }
+
+        #ninja-speech { position: absolute; top: 70px; left: 20px; background: white; color: black; padding: 6px 12px; border-radius: 12px; font-size: 13px; font-weight: bold; display: none; z-index: 10; border: 2px solid #4cd137; box-shadow: 0 4px 10px rgba(0,0,0,0.5); max-width: 150px; text-align: center; }
+        #ninja-speech::after { content: ''; position: absolute; bottom: -8px; left: 20px; border-width: 8px 8px 0; border-style: solid; border-color: white transparent; }
+
+        #scenery-object { position: absolute; bottom: 35px; right: 40px; font-size: 45px; z-index: 1; opacity: 1; transition: none; }
+        #scenery.walking #scenery-object { animation: walkPastScenery 1.1s linear infinite; }
+        
+        /* Zweites, weiter entferntes Hintergrund-Objekt (kleiner, blasser, langsamer) für mehr Tiefe */
+        #scenery-object-far { position: absolute; bottom: 72px; right: 140px; font-size: 26px; z-index: 0; opacity: 0.5; }
+        #scenery.walking #scenery-object-far { animation: walkPastSceneryFar 1.9s linear infinite; }
+        
+        /* Welt-spezifische Dekorationen am Spielcharakter */
+        .ninja-decor-stink { position: absolute; top: -55%; left: 50%; transform: translateX(-10%); font-size: 0.45em; filter: hue-rotate(90deg) saturate(3) brightness(1.2); animation: stinkPuff 1.6s infinite ease-in-out; z-index: 3; }
+        .ninja-decor-parrot { position: absolute; top: -30%; right: -28%; font-size: 0.45em; transform: scaleX(-1); z-index: 3; }
+        /* Weltall: Alle Charaktere fliegen dasselbe UFO - der gewählte Charakter sitzt als kleines Bild in der Kuppel */
+        .ufo-pilot { position: absolute; left: 50%; z-index: 2; pointer-events: none; }
+        #battle-indicator { position: absolute; top: 55px; left: 50%; transform: translateX(-50%); background: rgba(255,71,87,0.9); color: white; padding: 4px 14px; border-radius: 20px; font-size: 13px; font-weight: bold; z-index: 25; letter-spacing: 1px; box-shadow: 0 2px 6px rgba(0,0,0,0.4); }
+        
+        #boss-vignette { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 40; pointer-events: none; }
+        #boss-vignette.active { display: block; animation: vignettePulse 2s infinite ease-in-out; }
+
+        /* =========================================
+           CHARAKTERE
+        ========================================= */
+        #stage { width: 100%; height: 100%; position: relative; display: flex; align-items: flex-end; justify-content: space-between; padding-bottom: 25px; padding-left: 40px; padding-right: 40px; }
+        .character { font-size: 60px; position: relative; z-index: 5; bottom: -10px; transition: opacity 0.3s, filter 0.3s, transform 0.3s; }
+        
+        #shield-bubble { position: absolute; font-size: 80px; bottom: -10px; left: -10px; display: none; opacity: 0.6; pointer-events: none; z-index: 6; }
+        
+        #ninja-emoji { position: relative; display: inline-block; }
+        .wing { position: absolute; top: 15%; font-size: 0.65em; opacity: 0.9; z-index: -1; }
+        .wing-left { left: -30%; transform: scaleX(-1) rotate(-15deg); }
+        .wing-right { right: -30%; transform: rotate(-15deg); }
+        .dive-mask { position: absolute; left: 50%; z-index: 2; }
+        .dive-bubbles { position: absolute; bottom: 0; right: -25%; font-size: 0.45em; opacity: 0.8; }
+        
+        .enemy-scale-0 { transform: scale(0.8); }
+        .enemy-scale-1 { transform: scale(1.0); }
+        .enemy-scale-2 { transform: scale(1.2); }
+        
+        /* FIX: Bosse deutlich größer als die Spielfigur (bedrohlicher). Die Größe läuft
+           über die Schriftgröße des inneren Emojis - NICHT über die Rahmen-Animation,
+           denn die wurde von den Einflug-/Angriffs-Animationen (enemy-enter etc.)
+           überschrieben (nur eine animation-Regel pro Element gewinnt). Deshalb wirkten
+           Bosse bisher nie größer. Das sanfte Pulsieren liegt jetzt auf dem inneren Emoji. */
+        .boss-character { filter: drop-shadow(0px 0px 15px #ff4757) !important; }
+        .boss-character #enemy { font-size: 1.95em; transform-origin: bottom center; animation: bossPulse 1s infinite alternate ease-in-out; }
+        #boss-hp-container { display: none; position: absolute; top: 95px; left: 15px; background: rgba(0,0,0,0.6); padding: 4px 8px; border-radius: 8px; font-size: 14px; font-weight: bold; z-index: 15; border: 1px solid #ff4757; text-align: center; }
+        
+        .flying-ninja { animation: flyMotion 1s infinite alternate ease-in-out !important; bottom: 40px !important; }
+        .swimming-ninja { animation: swimMotion 1.5s infinite alternate ease-in-out !important; bottom: 5px !important; }
+        .ninja-running { animation: ninjaRun 0.6s infinite alternate ease-in-out; }
+        .ninja-attacking { animation: ninjaAttack 0.4s ease-in-out; }
+        .ninja-hit { animation: ninjaHit 0.5s ease-out; }
+        
+        .enemy-enter { animation: enemyEnter 0.6s forwards ease-out; }
+        .enemy-die { animation: enemyDie 0.6s forwards ease-in; }
+        .enemy-attack { animation: enemyAttack 0.5s ease-in-out; }
+        #hit-effect { position: absolute; font-size: 60px; display: none; z-index: 7; }
+        
+        #item-effect { position: absolute; top: 40%; left: 50%; font-size: 90px; z-index: 30; display: none; pointer-events: none; text-align: center; }
+        #item-effect.item-pop { display: block; animation: itemPop 0.6s ease-out forwards; }
+        
+        .timer-hourglass-flash { background-color: #ffd32a !important; box-shadow: 0 0 10px 2px #ffd32a; }
+        
+        .pause-btn.pause-pending { background: #ff4757; animation: timerPulse 0.5s infinite alternate; }
+        /* Android 15+ (Edge-to-Edge ab targetSdk 35): Inhalte aus Statusleisten-/Notch-Bereich heraushalten */
+
+        /* =========================================
+           INTERFACE & VIRTUAL KEYBOARD ZONE
+        ========================================= */
+        #input-zone { height: 58%; background: #1e272e; border-top: 4px solid #3d3d3d; display: flex; flex-direction: column; align-items: center; justify-content: space-between; padding: 8px 10px; position: relative; z-index: 20; }
+        #question { font-size: 24px; color: #ffd32a; font-weight: bold; text-shadow: 2px 2px 0 #000; text-align: center; margin-top: 2px; }
+        #timer-container { width: 90%; height: 8px; background: #111; border-radius: 4px; overflow: hidden; border: 1px solid #444; margin: 4px 0; }
+        #timer-bar { width: 100%; height: 100%; background: #4cd137; transition: width 0.1s linear; }
+        
+        #touch-display-area { font-size: 28px; width: 160px; height: 42px; background: #2f3542; border: 3px solid #ffd32a; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-weight: bold; color: white; margin-bottom: 4px; box-shadow: inset 0 2px 5px rgba(0,0,0,0.5); }
+        #touch-display-area.correct-flash { background: #2e7d32; border-color: #4caf50; }
+        #touch-display-area.wrong-flash { background: #c62828; border-color: #ef5350; }
+
+        .numpad-container { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; width: 100%; max-width: 280px; }
+        .num-btn { background: #4b5563; box-shadow: 0 3px 0 #1f2937; padding: 10px; font-size: 20px; margin: 0; border-radius: 8px; color: white; border: none;}
+        .num-btn:active { background: #6b7280; }
+        .action-btn { background: #ffd32a; color: #111; box-shadow: 0 3px 0 #b38f2e; font-size: 18px; }
+        .action-btn:active { background: #ffeaa7; }
+
+        .item-row { display: flex; justify-content: center; gap: 8px; width: 100%; margin-top: 4px; }
+        .item-btn { background: #3d3d3d; font-size: 12px; padding: 5px 10px; margin: 0; box-shadow: 0 3px 0 #111; flex: 1; max-width: 90px; }
+
+        /* =========================================
+           OVERLAYS, INFO & SHOP
+        ========================================= */
+        #pause-overlay, #wheel-overlay, #reward-overlay, #next-level-overlay, #about-overlay { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 50; flex-direction: column; align-items: center; justify-content: center; }
+        #promotion-overlay { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(to bottom, #1a0a2e, #4a0e6b); z-index: 50; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 20px; }
+        #promotion-emoji { font-size: 90px; transition: font-size 0.4s ease; animation: bounce 1.5s infinite ease-in-out; }
+        #promotion-title { color: #ffd32a; margin: 10px 0; text-shadow: 2px 2px 0 #000; }
+        #promotion-text { font-size: 16px; line-height: 1.5; max-width: 85%; color: white; }
+        .wheel-graphic { font-size: 80px; margin: 20px; transition: transform 3s cubic-bezier(0.1, 0.8, 0.3, 1); }
+        .reward-box { background: #2f3542; padding: 25px; border-radius: 12px; border: 3px solid #ffd32a; max-width: 85%; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.6); position: relative; }
+
+        .shop-section { width: 100%; font-weight: bold; color: #ffd32a; margin-top: 5px; text-align: left; padding-left: 5%; }
+        .shop-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; width: 95%; margin-bottom: 10px; }
+        .shop-item { background: rgba(255,255,255,0.05); padding: 8px; border-radius: 8px; border: 2px solid #444; cursor: pointer; font-size: 13px; }
+        .shop-item.owned { border-color: #4cd137; background: rgba(76, 209, 55, 0.08); }
+        .shop-item.equipped { border-color: #ffd32a; background: rgba(255, 211, 42, 0.15); font-weight: bold; }
+        .shop-item.unaffordable { opacity: 0.4; cursor: not-allowed; }
+        
+        ol { width: 85%; text-align: left; background: rgba(0,0,0,0.6); padding: 15px 35px; border-radius: 12px; }
+        li { font-size: 15px; margin: 5px 0; }
+        
+        /* Flags Toggle */
+        .flag-toggle { position: absolute; top: 10px; left: 10px; display: flex; gap: 8px; font-size: 24px; cursor: pointer; z-index: 60; }
+        .flag-btn { opacity: 0.5; transition: 0.2s; }
+        .flag-btn.active-flag { opacity: 1; transform: scale(1.1); }
+
+        /* Timer-Warnfarben */
+        .timer-warning { background-color: #f39c12 !important; }
+        .timer-critical { background-color: #ff4757 !important; animation: timerPulse 0.4s infinite alternate; }
+        .timer-critical-boss { animation: timerPulseBoss 0.25s infinite alternate !important; }
+
+        /* Highscore Klassen-Tabs */
+        .hs-grade { display: inline-block; background: #4b5563; color: #ffd32a; font-size: 11px; font-weight: bold; padding: 1px 6px; border-radius: 8px; margin-left: 6px; vertical-align: middle; }
+        .tab-btn { background: #4b5563; box-shadow: 0 3px 0 #374151; padding: 8px 14px; font-size: 14px; margin: 0; }
+        .tab-btn.active-tab { background: #ffd32a; color: #111; box-shadow: 0 3px 0 #b38f2e; }
+        
+        /* =========================================
+           ANIMATIONS
+        ========================================= */
+        @keyframes scrollGround { 0% { background-position: 0 0; } 100% { background-position: -40px 0; } }
+        @keyframes walkPastScenery { 0% { transform: translateX(120px); opacity: 0; } 15% { opacity: 1; } 85% { opacity: 1; } 100% { transform: translateX(-300px); opacity: 0; } }
+        @keyframes walkPastSceneryFar { 0% { transform: translateX(140px); opacity: 0; } 15% { opacity: 0.5; } 85% { opacity: 0.5; } 100% { transform: translateX(-260px); opacity: 0; } }
+        @keyframes stinkPuff { 0%, 100% { opacity: 0.55; transform: translate(-10%, 0) scale(1); } 50% { opacity: 0.9; transform: translate(-10%, -5px) scale(1.15); } }
+        @keyframes wheelShake { 0%, 100% { transform: translate(0,0); } 20%, 60% { transform: translate(-8px, 0); } 40%, 80% { transform: translate(8px, 0); } }
+        .wheel-error-shake { animation: wheelShake 0.4s ease-in-out; }
+        @keyframes screenShake { 0%, 100% { transform: translate(0, 0); } 10%, 50%, 90% { transform: translate(-4px, 2px); } 30%, 70% { transform: translate(4px, -2px); } }
+        .shake-effect { animation: screenShake 0.3s ease-in-out; }
+        @keyframes heartDistress { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.3); } }
+        @keyframes bounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+        @keyframes ninjaRun { 0% { transform: translateY(0) rotate(-2deg); } 100% { transform: translateY(-4px) rotate(2deg); } }
+        @keyframes flyMotion { 0% { transform: translateY(0); } 100% { transform: translateY(-15px); } }
+        @keyframes swimMotion { 0% { transform: translateY(0) rotate(-2deg); } 100% { transform: translateY(-8px) rotate(3deg); } }
+        @keyframes ninjaAttack { 0% { transform: translateX(0); } 40% { transform: translateX(100px) scale(1.05); } 100% { transform: translateX(0); } }
+        @keyframes ninjaHit { 0% { transform: translateX(0); filter: hue-rotate(90deg); } 20% { transform: translateX(-15px); } 40% { transform: translateX(10px); } 100% { transform: translateX(0); } }
+        @keyframes enemyEnter { 0% { transform: translateX(150px); opacity: 0; } 100% { transform: translateX(0); opacity: 1; } }
+        @keyframes enemyAttack { 0% { transform: translateX(0); } 50% { transform: translateX(-110px); } 100% { transform: translateX(0); } }
+        @keyframes enemyDie { 0% { transform: translate(0, 0) rotate(0deg) scale(1); opacity: 1; } 100% { transform: translate(120px, -120px) rotate(360deg) scale(0); opacity: 0; } }
+        @keyframes bossPulse { 0% { transform: scale(1); } 100% { transform: scale(1.08); } }
+        /* Aufblinken der Münz-/Sterne-Anzeige bei Kombo-Meilensteinen */
+        @keyframes rewardBlink { 0%, 100% { transform: scale(1); filter: none; } 50% { transform: scale(1.35); filter: drop-shadow(0 0 6px #ffd32a); } }
+        .reward-blink { animation: rewardBlink 0.45s ease-in-out 4; }
+        @keyframes floatUp { 0% { transform: translateY(0); opacity: 1; } 100% { transform: translateY(-100px); opacity: 0; } }
+        @keyframes timerPulse { 0% { opacity: 1; } 100% { opacity: 0.5; } }
+        @keyframes timerPulseBoss { 0% { opacity: 1; } 100% { opacity: 0.35; } }
+        @keyframes vignettePulse { 0%, 100% { box-shadow: inset 0 0 60px 20px rgba(255,0,0,0.35); } 50% { box-shadow: inset 0 0 85px 30px rgba(255,0,0,0.6); } }
+        @keyframes itemPop { 
+            0% { transform: translate(-50%, -50%) scale(0); opacity: 0; } 
+            30% { transform: translate(-50%, -50%) scale(1.3) rotate(-8deg); opacity: 1; } 
+            50% { transform: translate(-50%, -50%) scale(1.1) rotate(8deg); } 
+            70% { transform: translate(-50%, -50%) scale(1.15) rotate(-5deg); } 
+            100% { transform: translate(-50%, -50%) scale(1) rotate(0deg); opacity: 1; } 
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    
+    <div id="start-screen" class="screen active">
+        <button class="mute-toggle global-mute" onclick="toggleMute()">🔊</button>
+        <div class="flag-toggle">
+            <span id="flag-de" class="flag-btn active-flag" onclick="setLanguage('de')">🇩🇪</span>
+            <span id="flag-en" class="flag-btn" onclick="setLanguage('en')">🇬🇧</span>
+        </div>
+        <h1>MathWarrior</h1>
+        <div class="artwork">🥷 ⚔️ 👹</div>
+        
+        <select id="grade-select">
+            <option value="1-2" data-i18n="grade12">Klasse 1 / 2</option>
+            <option value="3-4" data-i18n="grade34">Klasse 3 / 4</option>
+        </select>
+
+        <button onclick="startGame()" data-i18n="newGame">Neues Spiel</button>
+        <button id="resume-btn" class="load-btn" onclick="resumeGame()" style="display:none;" data-i18n="continueGame">Weiterspielen 💾</button>
+        
+        <div style="display:flex;">
+            <button class="btn-shop" onclick="showScreen('shop-screen')" data-i18n="shopBtn">🛒 Shop</button>
+            <button class="btn-wheel" onclick="openWheel()" data-i18n="wheelBtn">🎰 Glücksrad</button>
+        </div>
+        <div style="display:flex;">
+            <button class="btn-highscore" onclick="showScreen('highscore-screen')" data-i18n="highscoreBtn">🏆 Highscore</button>
+            <button onclick="openAboutOverlay()" style="background:#57606f; box-shadow:0 4px 0 #2f3542;" data-i18n="infoBtn">ℹ️ Info</button>
+        </div>
+        <button onclick="replayIntroStory()" style="background:#8e44ad; box-shadow:0 4px 0 #6c3483;" data-i18n="storyBtn">📖 Story</button>
+    </div>
+
+    <div id="about-overlay">
+        <div class="reward-box" style="text-align: left; max-height: 80vh; overflow-y: auto; width: 90%;">
+            
+            <div id="info-content-de">
+                <h2 style="color:#ffd32a; margin-top:0; text-align: center;">Spielbeschreibung</h2>
+                
+                <h3 style="color:#ffd32a; margin-bottom:5px;">⚔️ So spielst du MathWarrior</h3>
+                <p style="font-size: 14px; line-height: 1.4; margin-top:0;">Löse die Mathe-Aufgaben so schnell wie möglich, um anzugreifen. Ist der Timer abgelaufen oder deine Antwort falsch, schlägt das Monster zu!</p>
+                
+                <h3 style="color:#ffd32a; margin-bottom:5px;">🛒 Der Shop & Items</h3>
+                <p style="font-size: 14px; line-height: 1.4; margin-top:0;">Sammle Münzen durch richtige Antworten und besiegte Bosse. Im Shop kannst du neue Ninja-Outfits freischalten oder mächtige Items kaufen:</p>
+                <ul style="font-size: 13px; line-height: 1.4; padding-left: 20px; color:#ddd;">
+                    <li>💣 <strong style="color:white;">Bombe:</strong> Löst die aktuelle Aufgabe sofort für dich und schlägt den Gegner.</li>
+                    <li>🛡️ <strong style="color:white;">Schild:</strong> Blockiert den nächsten feindlichen Treffer komplett.</li>
+                    <li>⏳ <strong style="color:white;">Sanduhr:</strong> Setzt deinen aktuellen Zeittimer wieder auf das Maximum zurück.</li>
+                    <li>❤️ <strong style="color:white;">Extraleben:</strong> Gibt dir ein zusätzliches Herz für die nächste Runde (bzw. sofort, falls im Spiel pausiert gekauft). Maximal 5 Herzen gleichzeitig.</li>
+                </ul>
+
+                <h3 style="color:#ffd32a; margin-bottom:5px;">💾 Automatisches Speichern</h3>
+                <p style="font-size: 14px; line-height: 1.4; margin-top:0;">Dein Fortschritt (Münzen, Outfits und Items) wird dauernd gesichert. Verlässt du ein laufendes Spiel über das Pausenmenü, kannst du es im Hauptmenü über den Button "Weiterspielen" genau dort fortsetzen!</p>
+                <p style="font-size: 14px; line-height: 1.4; margin-top:5px; color: #ff4757; font-weight: bold;">Wichtig: Jedes neue Spiel beginnt komplett frisch - du startest mit 3 Herzen, genau 1 Bombe und 0 Münzen, und spielst als klassischer Ninja 🥷 (Outfits müssen erneut freigeschaltet werden). Das gilt auch nach einem Game Over. ABER: Deine Glücksrad-Gewinne (Items und Münzen) bleiben dir erhalten und sind im nächsten Spiel dabei, bis du sie benutzt hast!</p>
+                
+                <h3 style="color:#ffd32a; margin-bottom:5px;">🎰 Das Glücksrad</h3>
+                <p style="font-size: 14px; line-height: 1.4; margin-top:0;">Schau regelmäßig beim Glücksrad vorbei, um völlig kostenlos Gratis-Münzen oder wertvolle Items zu erdrehen.</p>
+                
+                <div style="text-align: center; border-top: 1px dashed #555; padding-top: 15px; margin-top: 15px; color: #aaa; font-size: 13px;">
+                    App-Entwickler: <strong style="color:white;">Simon Mählmann</strong>
+                </div>
+            </div>
+
+            <div id="info-content-en" style="display:none;">
+                <h2 style="color:#ffd32a; margin-top:0; text-align: center;">Game Description</h2>
+                
+                <h3 style="color:#ffd32a; margin-bottom:5px;">⚔️ How to play MathWarrior</h3>
+                <p style="font-size: 14px; line-height: 1.4; margin-top:0;">Solve the math problems as fast as you can to attack. If the timer runs out or your answer is wrong, the monster strikes!</p>
+                
+                <h3 style="color:#ffd32a; margin-bottom:5px;">🛒 Shop & Items</h3>
+                <p style="font-size: 14px; line-height: 1.4; margin-top:0;">Collect coins by giving correct answers and defeating bosses. You can unlock new ninja outfits or buy powerful items in the shop:</p>
+                <ul style="font-size: 13px; line-height: 1.4; padding-left: 20px; color:#ddd;">
+                    <li>💣 <strong style="color:white;">Bomb:</strong> Instantly solves the current problem for you and hits the enemy.</li>
+                    <li>🛡️ <strong style="color:white;">Shield:</strong> Completely blocks the next enemy hit.</li>
+                    <li>⏳ <strong style="color:white;">Hourglass:</strong> Resets your current timer back to maximum.</li>
+                    <li>❤️ <strong style="color:white;">Extra life:</strong> Gives you an additional heart for the next round (or immediately if bought while paused mid-game). Maximum of 5 hearts at a time.</li>
+                </ul>
+
+                <h3 style="color:#ffd32a; margin-bottom:5px;">💾 Auto-Save</h3>
+                <p style="font-size: 14px; line-height: 1.4; margin-top:0;">Your progress (coins, outfits, and items) is constantly saved. If you leave a running game via the pause menu, you can resume exactly where you left off by clicking "Continue" in the main menu!</p>
+                <p style="font-size: 14px; line-height: 1.4; margin-top:5px; color: #ff4757; font-weight: bold;">Important: Every new game starts completely fresh - you begin with 3 hearts, exactly 1 bomb and 0 coins, playing as the classic ninja 🥷 (outfits must be unlocked again). This also applies after a Game Over. BUT: Your Wheel of Fortune prizes (items and coins) are kept and will be with you in your next game until you use them!</p>
+                
+                <h3 style="color:#ffd32a; margin-bottom:5px;">🎰 Wheel of Fortune</h3>
+                <p style="font-size: 14px; line-height: 1.4; margin-top:0;">Check the Wheel of Fortune regularly to spin for completely free coins or valuable items.</p>
+                
+                <div style="text-align: center; border-top: 1px dashed #555; padding-top: 15px; margin-top: 15px; color: #aaa; font-size: 13px;">
+                    App Developer: <strong style="color:white;">Simon Mählmann</strong>
+                </div>
+            </div>
+            
+            <div style="text-align: center; margin-top: 15px;">
+                <button class="load-btn" onclick="document.getElementById('about-overlay').style.display='none'" data-i18n="backBtn">Zurück</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="game-screen" class="screen">
+        <div id="boss-vignette"></div>
+        <div id="ui-bar">
+            <div id="lives-display">❤️ ❤️ ❤️</div>
+            <div id="coins-display">🪙 0</div>
+            <div id="score-display">⭐ 0</div>
+            <div>
+                <button class="mute-toggle" onclick="toggleMute()" style="padding: 4px 8px; font-size: 12px; margin-right: 5px;">🔊</button>
+                <button id="pause-btn" class="pause-btn" onclick="togglePause()">⏸️</button>
+            </div>
+        </div>
+        <div id="wave-progress-container">
+            <div id="wave-progress-bar"></div>
+        </div>
+        
+        <div id="scenery">
+            <div id="particles-container"></div>
+            <div id="sky-decor">☁️</div>
+            <div id="backdrop"></div>
+            <div id="scenery-object-far">🌳</div>
+            <div id="scenery-object">🌲</div>
+            <div id="battle-indicator" data-i18n="battleLabel">⚔️ Kampf!</div>
+            <div id="world-indicator" style="position:absolute; top:55px; right:15px; background:rgba(0,0,0,0.5); padding:2px 8px; border-radius:5px; font-size:12px;">Welt 1 - Welle 1</div>
+            
+            <div id="boss-hp-container">
+                BOSS HP<br><span id="boss-hearts">❤️ ❤️</span>
+            </div>
+            <div id="monster-speech">...</div>
+            <div id="ninja-speech">...</div>
+            <div id="hit-effect">💥</div>            
+            <div id="item-effect"></div>
+            <div id="stage">
+                <div id="ninja" class="character ninja-running">
+                    <span id="ninja-emoji">🥷</span>
+                    <div id="shield-bubble">🔮</div>
+                </div>
+                <div id="enemy-wrapper" class="character">
+                    <div id="enemy">🐺</div>
+                </div>
+            </div>
+            <div id="ground"></div>
+        </div>
+        
+        <div id="input-zone">
+            <div id="question" data-i18n="readyLabel">Bereit?</div>
+            <div id="timer-container"><div id="timer-bar"></div></div>
+            <div id="touch-display-area"></div>
+
+            <div class="numpad-container">
+                <button class="num-btn" onclick="pressKey('1')">1</button>
+                <button class="num-btn" onclick="pressKey('2')">2</button>
+                <button class="num-btn" onclick="pressKey('3')">3</button>
+                <button class="num-btn" onclick="pressKey('4')">4</button>
+                <button class="num-btn" onclick="pressKey('5')">5</button>
+                <button class="num-btn" onclick="pressKey('6')">6</button>
+                <button class="num-btn" onclick="pressKey('7')">7</button>
+                <button class="num-btn" onclick="pressKey('8')">8</button>
+                <button class="num-btn" onclick="pressKey('9')">9</button>
+                <button class="num-btn action-btn" style="background:#57606f; color:white; box-shadow:0 3px 0 #2f3542;" onclick="pressKey('CLR')">⌫</button>
+                <button class="num-btn" onclick="pressKey('0')">0</button>
+                <button id="attack-btn" class="num-btn action-btn" onclick="checkAnswer()">⚔️</button>
+            </div>
+
+            <div class="item-row">
+                <button id="use-bomb-btn" class="item-btn" onclick="useBomb()">💣 <span id="hud-bomb-count">0</span></button>
+                <button id="use-shield-btn" class="item-btn" onclick="useShield()">🛡️ <span id="hud-shield-count">0</span></button>
+                <button id="use-time-btn" class="item-btn" onclick="useHourglass()">⏳ <span id="hud-time-count">0</span></button>
+            </div>
+        </div>
+
+        <div id="pause-overlay">
+            <h2 data-i18n="pauseTitle">Spiel pausiert</h2>
+            <button class="load-btn" onclick="togglePause()" data-i18n="pauseResume">Weiterkämpfen ⚔️</button>
+            <button onclick="openShopFromPause()" data-i18n="pauseShop">🛒 Zum Shop</button>
+            <button onclick="exitToMainMenu()" style="background:#57606f;" data-i18n="pauseMainMenu">Hauptmenü (Speichern)</button>
+        </div>
+    </div>
+
+    <div id="next-level-overlay" class="reward-box" style="display:none;">
+        <h2 style="color:#ffd32a; margin-top:0;" data-i18n="worldCompleteTitle">WELT GESCHAFFT! 🎉</h2>
+        <p id="next-level-text" style="font-size:18px; line-height:1.4;"></p>
+        <button class="load-btn" onclick="startNextWorldDirectly()" data-i18n="nextLevelBtn">Weiter zum nächsten Level ➡️</button>
+    </div>
+
+    <div id="promotion-overlay">
+        <div id="promotion-emoji">🥷</div>
+        <h2 id="promotion-title"></h2>
+        <p id="promotion-text"></p>
+        <button id="promotion-next-btn" class="load-btn" onclick="nextCutsceneSlide()"></button>
+    </div>
+
+    <div id="reward-overlay">
+        <div class="reward-box">
+            <h2 id="reward-title" style="color:#ffd32a; margin-top:0;">Gewonnen!</h2>
+            <p id="reward-text" style="font-size:18px; line-height:1.4;"></p>
+            <button class="load-btn" onclick="closeRewardOverlay()" data-i18n="rewardOkBtn">Super! 👍</button>
+        </div>
+    </div>
+
+    <div id="wheel-overlay">
+        <h2 data-i18n="wheelTitle">🎰 Glücksrad</h2>
+        <p data-i18n="wheelDesc">Drehe das Rad für tolle Gratis-Belohnungen!</p>
+        <div id="wheel-anim" class="wheel-graphic">🎁</div>
+        <button id="spin-btn" onclick="spinWheel()" style="background:#ffd32a; color:#111;" data-i18n="wheelSpinBtn">Jetzt drehen!</button>
+        <button id="wheel-close-btn" onclick="closeWheel()" data-i18n="backBtn">Zurück</button>
+    </div>
+
+    <div id="shop-screen" class="screen">
+        <h1>MathWarrior Shop</h1>
+        <p><span data-i18n="yourCoinsLabel">Deine Münzen:</span> <span id="shop-coins" style="color:#ffd32a; font-weight:bold;">🪙 0</span></p>
+        
+        <div class="shop-section" data-i18n="outfitsLabel">Outfits:</div>
+        <div class="shop-grid">
+            <div class="shop-item equipped" id="skin-0" onclick="buyOrEquipSkin(0, 0)"><span data-i18n="skin0Name">🥷 Classic</span><br><small></small></div>
+            <div class="shop-item" id="skin-1" onclick="buyOrEquipSkin(1, 15)"><span data-i18n="skin1Name">👺 Dämon</span><br><small>🪙 15</small></div>
+            <div class="shop-item" id="skin-2" onclick="buyOrEquipSkin(2, 30)"><span data-i18n="skin2Name">🐯 Tiger</span><br><small>🪙 30</small></div>
+            <div class="shop-item" id="skin-3" onclick="buyOrEquipSkin(3, 50)"><span data-i18n="skin3Name">🐱 Neko</span><br><small>🪙 50</small></div>
+        </div>
+
+        <div class="shop-section" data-i18n="buyItemsLabel">Items kaufen:</div>
+        <div class="shop-grid">
+            <div class="shop-item" id="item-bomb" onclick="buyItem('bomb', 5)"><span data-i18n="itemBombName">💣 Bombe</span><br><small data-i18n="priceBomb">Preis: 🪙 5</small></div>
+            <div class="shop-item" id="item-shield" onclick="buyItem('shield', 4)"><span data-i18n="itemShieldName">🛡️ Schild</span><br><small data-i18n="priceShield">Preis: 🪙 4</small></div>
+            <div class="shop-item" id="item-hourglass" onclick="buyItem('hourglass', 3)"><span data-i18n="itemHourglassName">⏳ Sanduhr</span><br><small data-i18n="priceHourglass">Preis: 🪙 3</small></div>
+            <div class="shop-item" id="item-heart" onclick="buyHeart()"><span data-i18n="itemHeartName">❤️ Extraleben</span><br><small data-i18n="priceHeart">Preis: 🪙 100</small></div>
+        </div>
+        <div style="display:flex; align-items:center; justify-content:center; font-size:13px; background:rgba(0,0,0,0.5); border-radius:8px; padding: 5px; width: 95%; margin-bottom: 10px;" id="inventory-summary"></div>
+        <button id="shop-back-btn" onclick="closeShop()" data-i18n="backBtn">Zurück</button>
+    </div>
+
+    <div id="game-over-screen" class="screen">
+        <h1 style="color: #ff4757;">GAME OVER</h1>
+        <div class="artwork">💀</div>
+        <p id="final-score" style="font-size: 18px; font-weight: bold;"></p>
+        
+        <div id="highscore-input-zone" style="display:none; margin-bottom: 15px; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 8px; width:90%;">
+            <p style="color: #ffd32a; margin:0 0 10px 0; font-weight: bold;" data-i18n="top10Label">Top 10 Platzierung!</p>
+            <input type="text" id="player-name" data-i18n-placeholder="namePlaceholder" placeholder="Dein Name" maxlength="12" style="font-size:16px; padding:6px; text-align:center; border-radius:5px; background:#222; color:white; border:1px solid #ffd32a;">
+            <button onclick="saveHighscore()" style="padding:6px 12px; font-size:14px; margin:0 0 0 5px;" data-i18n="saveBtn">Sichern</button>
+        </div>
+        <button onclick="showScreen('start-screen')" data-i18n="mainMenuBtn">Hauptmenü</button>
+    </div>
+
+    <div id="highscore-screen" class="screen">
+        <h1 data-i18n="highscoreTitle">Top 10 Highscore</h1>
+        <ol id="highscore-list"></ol>
+        <button onclick="showScreen('start-screen')" data-i18n="backBtn">Zurück</button>
+    </div>
+</div>
+
+<script>
+    /* =========================================
+       ZENTRALE VARIABLEN & DATEN
+    ========================================= */
+    let appData = { 
+        totalCoins: 0, 
+        ownedSkins: [0], 
+        equippedSkinIndex: 0, 
+        inventory: { bomb: 1, shield: 0, hourglass: 0, heart: 0 }, 
+        wheelStash: { bomb: 0, shield: 0, hourglass: 0, heart: 0, coins: 0 }, 
+        maxUnlockedWorld: 1, 
+        highscores: [{name: "Meister", score: 30, grade: "1-2"}], 
+        lastWheelDate: "",
+        language: "de",
+        introSeen: false,
+        storyCompleted: false
+    };
+    
+    let currentLang = 'de';
+    
+    /* =========================================
+       ÜBERSETZUNGEN
+    ========================================= */
+    const T = {
+        de: {
+            newGame: "Neues Spiel", continueGame: "Weiterspielen 💾", shopBtn: "🛒 Shop", wheelBtn: "🎰 Glücksrad",
+            highscoreBtn: "🏆 Highscore", infoBtn: "ℹ️ Info", grade12: "Klasse 1 / 2", grade34: "Klasse 3 / 4",
+            pauseTitle: "Spiel pausiert", pauseResume: "Weiterkämpfen ⚔️", pauseShop: "🛒 Zum Shop", pauseMainMenu: "Hauptmenü (Speichern)",
+            worldCompleteTitle: "WELT GESCHAFFT! 🎉", nextLevelBtn: "Weiter zum nächsten Level ➡️", rewardOkBtn: "Super! 👍",
+            wheelTitle: "🎰 Glücksrad", wheelDesc: "Drehe das Rad für tolle Gratis-Belohnungen!", wheelSpinBtn: "Jetzt drehen!",
+            wheelSpinAgainTomorrow: "Morgen wieder!", backBtn: "Zurück", backToGameBtn: "Zurück zum Spiel ⚔️",
+            yourCoinsLabel: "Deine Münzen:", outfitsLabel: "Outfits:", skin0Name: "🥷 Classic", skin1Name: "👺 Dämon",
+            skin2Name: "🐯 Tiger", skin3Name: "🐱 Neko", buyItemsLabel: "Items kaufen:", itemBombName: "💣 Bombe",
+            itemShieldName: "🛡️ Schild", itemHourglassName: "⏳ Sanduhr", itemHeartName: "❤️ Extraleben",
+            priceBomb: "Preis: 🪙 5", priceShield: "Preis: 🪙 4", priceHourglass: "Preis: 🪙 3", priceHeart: "Preis: 🪙 100",
+            top10Label: "Top 10 Platzierung!", namePlaceholder: "Dein Name", saveBtn: "Sichern", mainMenuBtn: "Hauptmenü",
+            highscoreTitle: "Top 10 Highscore", ownedLabel: "Im Besitz", equippedLabel: "Aktiv ✓", readyLabel: "Bereit?",
+            criticalHit: "Kritischer Treffer! Weiter!", timeUp: "Zeit abgelaufen!", wrongAnswer: "Falsche Antwort!",
+            shieldBroken: "🛡️ Schild kaputt!", inventoryLabel: "Besitz:",
+            finalScoreTemplate: (s, c) => `Erreichte Punkte: ⭐ ${s}\n(Münzen in dieser Runde: 🪙 ${c})`,
+            highscoreEntry: (s) => `: ⭐ ${s} Punkte`,
+            worldCompletedMsg: (w) => `Welt ${w} erfolgreich abgeschlossen!`,
+            gradeUpMsg: "⚔️ Aufstieg in Klasse 3/4.", allWorldsMsg: "Du hast alle Welten gemeistert!",
+            correctText: () => `Richtig! ✨`,
+            comboMsg: (label, c, sc) => `KOMBO x${label}! ✨ 🪙 ${c} + ⭐ ${sc}! 🎉`,
+            roundQuestion: (n, u) => `Runde ${n} auf ${u} ≈ ?`,
+            unitTen: "Zehner", unitHundred: "Hunderter", unitThousand: "Tausender",
+            finalBossLabel: "👑 ENDKAMPF: Fürst Null",
+            finalBattleBtn: "Zum Endkampf! ⚔️",
+            rewardWheelTitle: "🎰 Glücksrad Gewinn!",
+            rewardWheelBody: (txt) => `Super!\nDu hast folgendes erhalten:\n\n${txt}`,
+            wheelPrizes: { coins5: '🪙 5 Münzen', bomb1: '💣 1 Bombe', shield1: '🛡️ 1 Schild', hourglass1: '⏳ 1 Sanduhr', coins10: '🪙 10 Münzen!', heart1: '❤️ 1 Extraleben' },
+            worldNames: { Wald: 'Wald', Strand: 'Strand', Schloss: 'Schloss', Weltall: 'Weltall', Vulkan: 'Vulkan', 'Straße': 'Straße', Pirat: 'Pirat', Ritterburg: 'Ritterburg', Kanal: 'Kanal', Himmel: 'Himmel', Tiefsee: 'Tiefsee', Drache: 'Drache', 'Süßigkeiten-Insel': 'Süßigkeiten-Insel', 'Dino-Dschungel': 'Dino-Dschungel', 'Eis-Gebirge': 'Eis-Gebirge' },
+            halfQuestion: (n) => `Die Hälfte von ${n} = ?`, doubleQuestion: (n) => `Das Doppelte von ${n} = ?`,
+            waveLabel: (w, wave) => `${w} - Welle ${wave}/10`,
+            comboPhrases: ["Ich bin nicht zu stoppen!", "Zu einfach!", "Weiter so!", "Das war stark!", "Nächster bitte!"],
+            nextBtn: "Weiter ➡️", promotionStartBtn: "Los geht's! ⚔️", battleLabel: "⚔️ Kampf!",
+            storyBtn: "📖 Story", guardianStartBtn: "Als Wächter weiterspielen! 🛡️",
+            guardianModeMsg: "🛡️ Das Gleichgewicht hält! Ein neuer Chaos-Riss wartet...",
+            promotionSlides: [
+                { title: "Meisterhaft! 🎉", text: "Du hast alle 15 Regionen der Klasse 1 / 2 von den Rechen-Rissen befreit!" },
+                { title: "Ein Bote stürmt herein! 📯", text: "\"Ninja! Fürst Null hat Prinzessin Mathilda entführt - er will die Große Gleichung für immer zerstören!\"", emoji: "👹👸" },
+                { title: "Bereit für mehr?", text: "Ab jetzt warten schwerere Aufgaben in Klasse 3 / 4 auf dich - größere Zahlen, Division und knifflige Boss-Aufgaben!" },
+                { title: "Aufstieg!", text: "Rette Prinzessin Mathilda, Meister-Ninja! Klasse 3 / 4 wartet auf dich!" }
+            ],
+            introSlides: [
+                { title: "Willkommen in Zahlenland! 👸", text: "Prinzessin Mathilda wacht über die Große Gleichung - das Gleichgewicht allen Rechnens.", emoji: "👸" },
+                { title: "Risse im Gleichgewicht", text: "Fürst Null, Herrscher der Leere, hat dunkle Risse in allen 15 Regionen geöffnet!", emoji: "🌀" },
+                { title: "Deine Prüfung beginnt", text: "Als Mathe-Ninja bist du der Einzige, der die Sprache der Zahlen beherrscht. Beweise dich!", emoji: "🥷" }
+            ],
+            introSlidesAdvanced: [
+                { title: "Willkommen in Zahlenland! 👸", text: "Prinzessin Mathilda wachte einst über die Große Gleichung - das Gleichgewicht allen Rechnens.", emoji: "👸" },
+                { title: "Sie wurde entführt!", text: "Fürst Null, Herrscher der Leere, hat Mathilda entführt und dunkle Risse in allen 15 Regionen geöffnet!", emoji: "👹👸" },
+                { title: "Deine Mission beginnt", text: "Als erfahrener Mathe-Ninja bist du bereit für die größte Prüfung: Rette die Prinzessin!", emoji: "🥷" }
+            ],
+            finalIntroSlides: [
+                { title: "Der Wächter fällt! 🐉", text: "Der korrumpierte Drache sinkt zu Boden. Der Weg zu Fürst Null ist endlich frei...", emoji: "🐉" },
+                { title: "Fürst Null erscheint", text: "Ein finsteres Lachen erfüllt den Raum: \"Zahlen sind bedeutungslos - ich bin die Leere, die allem vorausging!\"", emoji: "👹" },
+                { title: "Der Endkampf beginnt!", text: "Fürst Null hat 10 Leben! Nur deine schärfste Rechenkunst kann die Leere besiegen. Rette Prinzessin Mathilda!", emoji: "🥷⚔️👹" }
+            ],
+            finalVictorySlides: [
+                { title: "Fürst Null ist besiegt! 💥", text: "Mit deiner letzten Antwort zerbricht der Käfig aus falschen Gleichungen - die Leere löst sich in Sternenstaub auf!", emoji: "✨" },
+                { title: "Prinzessin Mathilda ist frei! 👸", text: "\"Danke, tapferer Ninja! Doch Fürst Null ist nur zurückgedrängt, nicht besiegt. Das Gleichgewicht muss ewig bewahrt werden...\"", emoji: "🥷👸" },
+                { title: "Werde zum Wächter der Zahlen", text: "Von nun an wachst du über Zahlenland - jede neue Herausforderung erhält das Gleichgewicht. Bereit?", emoji: "🥷" }
+            ]
+        },
+        en: {
+            newGame: "New Game", continueGame: "Continue 💾", shopBtn: "🛒 Shop", wheelBtn: "🎰 Wheel of Fortune",
+            highscoreBtn: "🏆 High Scores", infoBtn: "ℹ️ Info", grade12: "Grade 1 / 2", grade34: "Grade 3 / 4",
+            pauseTitle: "Game Paused", pauseResume: "Keep Fighting ⚔️", pauseShop: "🛒 Go to Shop", pauseMainMenu: "Main Menu (Save)",
+            worldCompleteTitle: "WORLD COMPLETE! 🎉", nextLevelBtn: "Continue to Next Level ➡️", rewardOkBtn: "Great! 👍",
+            wheelTitle: "🎰 Wheel of Fortune", wheelDesc: "Spin the wheel for great free rewards!", wheelSpinBtn: "Spin Now!",
+            wheelSpinAgainTomorrow: "Come back tomorrow!", backBtn: "Back", backToGameBtn: "Back to Game ⚔️",
+            yourCoinsLabel: "Your Coins:", outfitsLabel: "Outfits:", skin0Name: "🥷 Classic", skin1Name: "👺 Demon",
+            skin2Name: "🐯 Tiger", skin3Name: "🐱 Neko", buyItemsLabel: "Buy Items:", itemBombName: "💣 Bomb",
+            itemShieldName: "🛡️ Shield", itemHourglassName: "⏳ Hourglass", itemHeartName: "❤️ Extra Life",
+            priceBomb: "Price: 🪙 5", priceShield: "Price: 🪙 4", priceHourglass: "Price: 🪙 3", priceHeart: "Price: 🪙 100",
+            top10Label: "Top 10 Ranking!", namePlaceholder: "Your Name", saveBtn: "Save", mainMenuBtn: "Main Menu",
+            highscoreTitle: "Top 10 High Scores", ownedLabel: "Owned", equippedLabel: "Equipped", readyLabel: "Ready?",
+            criticalHit: "Critical hit! Keep going!", timeUp: "Time's up!", wrongAnswer: "Wrong answer!",
+            shieldBroken: "🛡️ Shield broken!", inventoryLabel: "Inventory:",
+            finalScoreTemplate: (s, c) => `Points achieved: ⭐ ${s}\n(Coins this round: 🪙 ${c})`,
+            highscoreEntry: (s) => `: ⭐ ${s} points`,
+            worldCompletedMsg: (w) => `World ${w} completed successfully!`,
+            gradeUpMsg: "⚔️ Promoted to Grade 3/4.", allWorldsMsg: "You have mastered all worlds!",
+            correctText: () => `Correct! ✨`,
+            comboMsg: (label, c, sc) => `COMBO x${label}! ✨ 🪙 ${c} + ⭐ ${sc}! 🎉`,
+            roundQuestion: (n, u) => `Round ${n} to the nearest ${u} ≈ ?`,
+            unitTen: "ten", unitHundred: "hundred", unitThousand: "thousand",
+            finalBossLabel: "👑 FINAL BATTLE: Lord Zero",
+            finalBattleBtn: "To the final battle! ⚔️",
+            rewardWheelTitle: "🎰 Wheel of Fortune Prize!",
+            rewardWheelBody: (txt) => `Great!\nYou received the following:\n\n${txt}`,
+            wheelPrizes: { coins5: '🪙 5 Coins', bomb1: '💣 1 Bomb', shield1: '🛡️ 1 Shield', hourglass1: '⏳ 1 Hourglass', coins10: '🪙 10 Coins!', heart1: '❤️ 1 Extra Life' },
+            worldNames: { Wald: 'Forest', Strand: 'Beach', Schloss: 'Castle', Weltall: 'Space', Vulkan: 'Volcano', 'Straße': 'Street', Pirat: 'Pirate Cove', Ritterburg: "Knight's Castle", Kanal: 'Sewer', Himmel: 'Sky', Tiefsee: 'Deep Sea', Drache: "Dragon's Lair", 'Süßigkeiten-Insel': 'Candy Island', 'Dino-Dschungel': 'Dino Jungle', 'Eis-Gebirge': 'Ice Mountains' },
+            halfQuestion: (n) => `Half of ${n} = ?`, doubleQuestion: (n) => `Double of ${n} = ?`,
+            waveLabel: (w, wave) => `${w} - Wave ${wave}/10`,
+            comboPhrases: ["I can't be stopped!", "Too easy!", "Keep it up!", "That was strong!", "Next one, please!"],
+            nextBtn: "Next ➡️", promotionStartBtn: "Let's go! ⚔️", battleLabel: "⚔️ Battle!",
+            storyBtn: "📖 Story", guardianStartBtn: "Continue as Guardian! 🛡️",
+            guardianModeMsg: "🛡️ The balance holds! A new rift of chaos awaits...",
+            promotionSlides: [
+                { title: "Masterful! 🎉", text: "You have freed all 15 regions of Grade 1 / 2 from the rifts of chaos!" },
+                { title: "A messenger bursts in! 📯", text: "\"Ninja! Lord Zero has kidnapped Princess Mathilda - he wants to destroy the Great Equation forever!\"", emoji: "👹👸" },
+                { title: "Ready for more?", text: "From now on, harder challenges await in Grade 3 / 4 - bigger numbers, division, and tricky boss problems!" },
+                { title: "Level Up!", text: "Rescue Princess Mathilda, master ninja! Grade 3 / 4 awaits!" }
+            ],
+            introSlides: [
+                { title: "Welcome to Numberland! 👸", text: "Princess Mathilda watches over the Great Equation - the balance of all calculation.", emoji: "👸" },
+                { title: "Cracks in the Balance", text: "Lord Zero, ruler of the void, has opened dark rifts across all 15 regions!", emoji: "🌀" },
+                { title: "Your Trial Begins", text: "As a Math Ninja, you alone speak the language of numbers. Prove yourself!", emoji: "🥷" }
+            ],
+            introSlidesAdvanced: [
+                { title: "Welcome to Numberland! 👸", text: "Princess Mathilda once watched over the Great Equation - the balance of all calculation.", emoji: "👸" },
+                { title: "She has been kidnapped!", text: "Lord Zero, ruler of the void, has kidnapped Mathilda and opened dark rifts across all 15 regions!", emoji: "👹👸" },
+                { title: "Your Mission Begins", text: "As an experienced Math Ninja, you're ready for the greatest trial: rescue the princess!", emoji: "🥷" }
+            ],
+            finalIntroSlides: [
+                { title: "The Guardian Falls! 🐉", text: "The corrupted dragon sinks to the ground. The path to Lord Zero is finally clear...", emoji: "🐉" },
+                { title: "Lord Zero Appears", text: "A dark laugh fills the room: \"Numbers are meaningless - I am the void that came before all things!\"", emoji: "👹" },
+                { title: "The Final Battle Begins!", text: "Lord Zero has 10 lives! Only your sharpest calculation skills can defeat the void. Rescue Princess Mathilda!", emoji: "🥷⚔️👹" }
+            ],
+            finalVictorySlides: [
+                { title: "Lord Zero is Defeated! 💥", text: "With your final answer, the cage of false equations shatters - the void dissolves into stardust!", emoji: "✨" },
+                { title: "Princess Mathilda is Free! 👸", text: "\"Thank you, brave ninja! But Lord Zero is only pushed back, not defeated. The balance must be kept forever...\"", emoji: "🥷👸" },
+                { title: "Become the Guardian of Numbers", text: "From now on, you watch over Numberland - every new challenge preserves the balance. Ready?", emoji: "🥷" }
+            ]
+        }
+    };
+    
+    /* =========================================
+       SPRACHSTEUERUNG
+    ========================================= */
+    function applyStaticTranslations() {
+        document.querySelectorAll('[data-i18n]').forEach(el => {
+            const key = el.getAttribute('data-i18n');
+            if (T[currentLang][key] !== undefined) el.textContent = T[currentLang][key];
+        });
+        document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+            const key = el.getAttribute('data-i18n-placeholder');
+            if (T[currentLang][key] !== undefined) el.placeholder = T[currentLang][key];
+        });
+    }
+
+    function setLanguage(lang) {
+        currentLang = lang;
+        appData.language = lang;
+        saveAllData();
+        
+        document.getElementById('flag-de').classList.toggle('active-flag', lang === 'de');
+        document.getElementById('flag-en').classList.toggle('active-flag', lang === 'en');
+        
+        applyStaticTranslations();
+        
+        document.getElementById('info-content-de').style.display = lang === 'de' ? 'block' : 'none';
+        document.getElementById('info-content-en').style.display = lang === 'en' ? 'block' : 'none';
+        
+        if (document.getElementById('game-screen').classList.contains('active')) updateUI();
+        if (document.getElementById('shop-screen').classList.contains('active')) updateShopUI();
+        if (document.getElementById('highscore-screen').classList.contains('active')) displayHighscores();
+    }
+
+    function openAboutOverlay() {
+        document.getElementById('info-content-de').style.display = currentLang === 'de' ? 'block' : 'none';
+        document.getElementById('info-content-en').style.display = currentLang === 'en' ? 'block' : 'none';
+        document.getElementById('about-overlay').style.display = 'flex';
+    }
+
+    let lives, coins, score, currentAnswer, isWaiting, selectedGrade, currentEnemyCount;
+    let timerInterval, timeLeft, maxTime;
+    let shieldActive = false, isPaused = false, cameFromPause = false, isMuted = false, pauseRequested = false;
+    let restoreTaskMemory = null; // Aufgaben-Gedächtnis, das beim Weiterspielen übernommen wird
+    let currentQuestionText = ""; // Merkt sich den Aufgabentext, um ihn z.B. nach einem Schild-Block wieder anzuzeigen
+    let currentWorld = 1; 
+    let bossHp = 0, comboStreak = 0; 
+    let currentInputStr = ""; 
+    let audioCtx, musicInterval, musicBeat = 0;
+    let appInBackground = false; // true, solange die App im Hintergrund ist (Home-Button, App-Wechsel)
+    let speechTimeout, ninjaSpeechTimeout;
+    let walkPhase = false; // true = Laufphase zwischen zwei Gegnern (nur hier ist Pausieren möglich)
+    // Merkt sich die zuletzt gezeigten Objekte/Gegner, damit nie zweimal dasselbe hintereinander erscheint
+    let lastSceneryObject = "", lastSceneryFarObject = "", lastEnemyEmoji = "";
+    let bombReveal = false;        // Nach Bombeneinsatz: die vollständige Lösung anzeigen (Punkt 5)
+    let currentSolutionText = "";  // Aufgabentext mit eingesetzter Lösung (z. B. "47 + 28 = 75")
+    let recentTaskTexts = [];      // Aufgaben-Gedächtnis pro Welt: keine Aufgabe doppelt (Punkt 9)
+    const TASK_MEMORY_SIZE  = 40;  // so viele Aufgaben werden pro Welt gemerkt
+    const TASK_MEMORY_TRIES = 60;  // so oft wird bei einer Dopplung neu gewürfelt
+    let speechHideAt = 0;          // Zeitpunkt, zu dem alle Sprechblasen ausgeblendet sind (Punkt 1)
+    
+    const MAX_LIVES = 5;
+    const BASE_LIVES = 3;
+    const MAX_HEART_INVENTORY = MAX_LIVES - BASE_LIVES; // 2 gespeicherte Herzen -> max. 5 Leben insgesamt (3 Basis + 2)
+    
+    const worldsConfig = [
+        { name: 'Wald', sky: 'linear-gradient(to bottom, #1e3799, #4a69bd)', ground: '#78e08f', objects: ['🌲', '🌳', '🌿', '🪵', '🍄', '🍂', '🌻', '🪨', '🦌'], skyObj: '☁️', enemies: ['🐺', '🐗', '🕷️', '🍄', '🦔', '🦡', '🐍', '🦉'], boss: '🧌', bossMaxHp: 2, mode: 'ground', backdrop: '🌲🌳', particleType: 'leaves', musicPitch: 1.0, dialogue: {
+            de: { hit: ["Aua!", "Lauf schneller!", "Nicht getroffen!", "Das tat weh!", "Zurück, Ninja!", "Mein Fell!", "Dornen und Disteln!", "Wurzelschreck!"], win: ["Ich komme wieder!", "Verfluchter Ninja!", "Nicht fair!", "Der Wald rächt sich!", "Der Wald behält dich!", "Die Bäume weinen!", "Ich verkrieche mich!", "Moos über mich!"], lose: ["Zu langsam!", "Mehr Mathe lernen!", "Schwach!", "Kinderspiel!", "Verlauf dich nicht!", "Im Dickicht verirrt!", "Die Wurzeln holen dich!", "Zurück auf den Weg!"], bossDefeat: "Der Waldtroll verschwindet in einer Rauchwolke!" },
+            en: { hit: ["Ouch!", "Run faster!", "Missed me!", "That hurt!", "Back off, ninja!", "My fur!", "Thorns and thistles!", "Root scare!"], win: ["I'll be back!", "Cursed ninja!", "Not fair!", "The forest takes revenge!", "The forest keeps you!", "The trees are weeping!", "I'll crawl away!", "Moss over me!"], lose: ["Too slow!", "Learn more math!", "Weak!", "Child's play!", "Don't get lost!", "Lost in the thicket!", "The roots will get you!", "Back to the path!"], bossDefeat: "The forest troll vanishes in a puff of smoke!" }
+        } },
+        { name: 'Strand', sky: 'linear-gradient(to bottom, #0a3d62, #3c6382)', ground: '#f6b93b', objects: ['🌴', '🪨', '🐚', '🏖️', '⛱️', '🍉', '🏐', '⛵', '🪸'], skyObj: '☀️', enemies: ['🦀', '🦂', '🐍', '🐢', '🦞', '🦩', '🐙', '🦑'], boss: '🦈', bossMaxHp: 2, mode: 'ground', backdrop: '🌴⛵', particleType: 'sand', musicPitch: 1.12, dialogue: {
+            de: { hit: ["Sand im Auge!", "Kneif mich nicht!", "Autsch, meine Schere!", "Nicht die Krabbe!", "Meine Scheren!", "Meine Muschel!", "Salz in der Wunde!", "Weg von meinem Strand!"], win: ["Ab ins Meer mit mir!", "Du nervst!", "Zurück zur Flut!", "Das war knapp!", "Wellen schlucken dich!", "Die Möwen lachen mich aus!", "Eingebuddelt!", "Meine Sandburg-Zeit ist um!"], lose: ["Sonnenstich?", "Zu heiß für dich?", "Schwimm weiter!", "Ebbe für dich!", "Verbrannt vom Sand!", "Baden gegangen!", "Sandkorn im Getriebe?", "Die Flut kommt!"], bossDefeat: "Der Riesenhai flüchtet zurück in die Tiefe!" },
+            en: { hit: ["Sand in my eye!", "Don't pinch me!", "Ouch, my claw!", "Not the crab!", "My claws!", "My shell!", "Salt in the wound!", "Off my beach!"], win: ["Off to the sea with me!", "You're annoying!", "Back to the tide!", "That was close!", "Waves swallow you!", "The seagulls laugh at me!", "Buried in sand!", "My sandcastle days are over!"], lose: ["Sunstroke?", "Too hot for you?", "Keep swimming!", "Low tide for you!", "Burned by sand!", "Washed out!", "Sand in your gears?", "The tide is coming!"], bossDefeat: "The giant shark flees back into the deep!" }
+        } },
+        { name: 'Süßigkeiten-Insel', sky: 'linear-gradient(to bottom, #b53471, #f78fb3)', ground: '#f8a5c2', objects: ['🍭', '🍬', '🧁', '🍩', '🍰', '🍪', '🍦', '🎂', '🍡'], skyObj: '🍭', enemies: ['🍬', '🍭', '🧁', '🍩', '🍪', '🍡', '🍮', '🥤'], boss: '🍫', bossMaxHp: 2, mode: 'ground', backdrop: '🍭🎂', particleType: 'candy', musicPitch: 1.15, dialogue: {
+            de: { hit: ["Klebrig!", "Mein Zuckerguss!", "Nicht naschen!", "Zuckerschock!", "Karamell-Alarm!", "Meine Streusel!", "Das war mein Keks!", "Süß und sauer!"], win: ["Ich zerbrösele!", "Mein Zucker schmilzt!", "Zurück in die Tüte!", "Kein Nachtisch mehr!", "Zerkaut!", "Ich klebe fest!", "Süß war's!", "Der König rächt mich!"], lose: ["Zuckerschock für dich!", "Karies-Fluch!", "Zu viel genascht?", "Klebrige Niederlage!", "Bauchweh?", "Naschverbot!", "Von wegen süß!", "Zahnweh, Ninja?"], bossDefeat: "Der König der Karies zerschmilzt zu Schokosoße!" },
+            en: { hit: ["Sticky!", "My frosting!", "No snacking!", "Sugar shock!", "Caramel alert!", "My sprinkles!", "That was my cookie!", "Sweet and sour!"], win: ["I'm crumbling!", "My sugar is melting!", "Back into the bag!", "No more dessert!", "Chewed up!", "I'm stuck!", "It was sweet!", "The king will avenge me!"], lose: ["Sugar shock for you!", "Cavity curse!", "Too many sweets?", "Sticky defeat!", "Tummy ache?", "No snacks for you!", "Not so sweet!", "Toothache, ninja?"], bossDefeat: "The King of Cavities melts into chocolate sauce!" }
+        } },
+        { name: 'Schloss', sky: 'linear-gradient(to bottom, #1e1b26, #2c2538)', ground: '#4b4b4b', objects: ['🧱', '🕯️', '🛡️', '🪦', '🚪', '🗝️', '⚰️', '🕸️', '🏺'], skyObj: '🦇', enemies: ['👻', '🧛', '🧙‍♀️', '🦇', '🕷️', '⚰️', '🧟', '🐈‍⬛'], boss: '💀', bossMaxHp: 3, mode: 'ground', backdrop: '🏰🪦', particleType: 'dust', musicPitch: 0.85, dialogue: {
+            de: { hit: ["Buh!", "Schaurig...", "Gänsehaut?", "Meine Knochen!", "Kalter Hauch!", "Mein Umhang!", "Nicht so hell!", "Rappelnde Knochen!"], win: ["Zurück ins Grab!", "Uaargh!", "Verflucht sei du!", "Die Nacht gehört mir!", "Die Krypta ruft!", "Ich spuke woanders!", "Mein Fluch verpufft!", "Das Licht... es brennt!"], lose: ["Fürchte dich!", "Die Geisterstunde!", "Kalte Schauer!", "Für immer verloren!", "Verflucht!", "Mitternacht schlägt!", "Gruselig genug?", "Die Geister kichern!"], bossDefeat: "Das Skelett zerfällt zu Staub!" },
+            en: { hit: ["Boo!", "Spooky...", "Goosebumps?", "My bones!", "Cold breath!", "My cape!", "Not so bright!", "Rattling bones!"], win: ["Back to the grave!", "Argh!", "Cursed be you!", "The night is mine!", "The crypt calls!", "I'll haunt elsewhere!", "My curse fizzles!", "The light... it burns!"], lose: ["Fear me!", "The witching hour!", "Cold shivers!", "Lost forever!", "Cursed!", "Midnight strikes!", "Scary enough?", "The ghosts are giggling!"], bossDefeat: "The skeleton crumbles to dust!" }
+        } },
+        { name: 'Straße', sky: 'linear-gradient(to bottom, #57606f, #2f3542)', ground: '#747d8c', objects: ['🏪', '🪧', '🚧', '🚗', '🚦', '🏙️', '🚕', '🗑️', '🛵'], skyObj: '🚁', enemies: ['🦹', '🐕‍🦺', '🥷🏿', '🐀', '🦝', '🐦‍⬛', '🐈‍⬛', '🐕'], boss: '🦍', bossMaxHp: 3, mode: 'ground', backdrop: '🏙️🏢🏬', particleType: 'dust', musicPitch: 1.0, dialogue: {
+            de: { hit: ["Aus dem Weg!", "Platz da!", "Nicht schummeln!", "Zurückweichen!", "Nicht in meinem Revier!", "Meine Mülltonne!", "Vorfahrt missachtet!", "Hupen hilft nicht!"], win: ["Ich geb auf!", "Rückzug!", "Respekt, Ninja!", "Das war knapp!", "Verschwinde von der Straße!", "Ab in die Seitengasse!", "Meine Gang lässt mich hängen!", "Feierabend für mich!"], lose: ["Stau im Kopf?", "Zu langsam!", "Verkehrschaos!", "Ampel rot!", "Straßenkrieger-Verlierer!", "Zebrastreifen verpasst!", "Gegen die Wand!", "Stadtluft zu rau?"], bossDefeat: "Der Straßen-Gorilla gibt auf und zieht ab!" },
+            en: { hit: ["Out of my way!", "Move it!", "No cheating!", "Back off!", "Not in my territory!", "My trash can!", "Right of way ignored!", "Honking won't help!"], win: ["I give up!", "Retreat!", "Respect, ninja!", "That was close!", "Get off the street!", "Into the side alley!", "My gang abandoned me!", "I'm clocking out!"], lose: ["Traffic jam in your head?", "Too slow!", "Traffic chaos!", "Red light!", "Street warrior loser!", "Missed the crosswalk!", "Into the wall!", "City air too rough?"], bossDefeat: "The street gorilla gives up and lumbers away!" }
+        } },
+        { name: 'Dino-Dschungel', sky: 'linear-gradient(to bottom, #0b3d20, #2e7d32)', ground: '#6ab04c', objects: ['🌴', '🌿', '🦴', '🥚', '🌋', '🍃', '🪨', '🌺', '🪺'], skyObj: '☁️', enemies: ['🥚', '🦕', '🦅', '🦎', '🐊', '🐍', '🦂', '🕷️'], boss: '🦖', bossMaxHp: 3, mode: 'ground', backdrop: '🌋🌴', particleType: 'leaves', musicPitch: 0.92, dialogue: {
+            de: { hit: ["Rooar!", "Mein Schwanz!", "Uriger Schmerz!", "Nicht die Schuppen!", "Stampf stampf!", "Mein Ei!", "Donnerschlag!", "Zähne weg!"], win: ["Ausgestorben!", "Zurück ins Nest!", "Der Dschungel ruft mich heim!", "Versteinert!", "Mein Rudel rächt mich!", "Urzeit ade!", "Ich falle wie ein Farn!", "Zum Fossil werde ich!"], lose: ["Urzeit-Power!", "Zermalmt!", "Du bist Dino-Futter!", "Winzling!", "Der Dschungel verschluckt dich!", "Steinzeit-Schwäche!", "Weggestampft!", "Brüll doch mal!"], bossDefeat: "Der T-Rex brüllt ein letztes Mal und verschwindet im Dickicht!" },
+            en: { hit: ["Roar!", "My tail!", "Ancient pain!", "Not the scales!", "Stomp stomp!", "My egg!", "Thunderclap!", "Watch the teeth!"], win: ["Extinct!", "Back to the nest!", "The jungle calls me home!", "Petrified!", "My herd will avenge me!", "Farewell, stone age!", "I'm falling like a fern!", "I'll become a fossil!"], lose: ["Prehistoric power!", "Crushed!", "You're dino food!", "Tiny one!", "The jungle swallows you!", "Stone age weakness!", "Stomped away!", "Let's hear you roar!"], bossDefeat: "The T-Rex roars one last time and vanishes into the thicket!" }
+        } },
+        { name: 'Ritterburg', sky: 'linear-gradient(to bottom, #4b6584, #a5b1c2)', ground: '#6b5b45', objects: ['🏰', '🧱', '🛡️', '🔥', '⛺', '🚩', '🗡️', '🪓', '🏹'], skyObj: '🚩', enemies: [{ e: '🏇', scale: 2 }, { e: '🏇', hue: 150, scale: 1 }, { e: '💂', scale: 1 }, { e: '💂', hue: 215, sat: 1.4, scale: 2 }, { e: '🤺', scale: 1 }, { e: '🧙', hue: 275, scale: 1 }, { e: '🧝', hue: 90, scale: 0 }, { e: '🐴', hue: 30, scale: 1 }], boss: '🦹', bossFilter: 'hue-rotate(205deg) saturate(0.45) brightness(0.72)', bossMaxHp: 4, mode: 'ground', backdrop: '🏰⛺', particleType: 'dust', musicPitch: 0.9, dialogue: {
+            de: { hit: ["Schildkröte!", "Pariert!", "Guter Hieb!", "Getroffen!", "Zurückweichen, Schurke!", "Meine Rüstung!", "Helm verrutscht!", "Beim Barte des Königs!"], win: ["Ritterlich!", "Meine Ehre!", "Ich unterliege!", "Ein würdiger Gegner!", "Für die Krone!", "Ich strecke die Waffen!", "Das Turnier ist vorbei!", "Meine Burg ist verloren!"], lose: ["Schachmatt!", "Verloren!", "Zu schwach!", "Die Burg fällt!", "Niedergestreckt!", "Vom Ross gefallen!", "Zugbrücke hoch!", "Knappe, hilf ihm auf!"], bossDefeat: "Der Schwarze Ritter senkt die Klinge und zieht ab!" },
+            en: { hit: ["Turtle shell!", "Parried!", "Good strike!", "Hit!", "Fall back, rogue!", "My armor!", "Helmet slipped!", "By the king's beard!"], win: ["Chivalrous!", "My honor!", "I yield!", "A worthy opponent!", "For the crown!", "I lay down my arms!", "The tournament is over!", "My castle is lost!"], lose: ["Checkmate!", "Defeated!", "Too weak!", "The castle falls!", "Struck down!", "Fallen off the horse!", "Raise the drawbridge!", "Squire, help him up!"], bossDefeat: "The Black Knight lowers his blade and withdraws!" }
+        } },
+        { name: 'Pirat', sky: 'linear-gradient(to bottom, #22a6b3, #30336b)', ground: '#be2edd', objects: ['📦', '⚓', '🪙', '🪵', '🗺️', '🛶', '💰', '🍾', '🏴‍☠️'], skyObj: '🏴‍☠️', enemies: [{ e: '🧔🏽', scale: 1 }, { e: '🧔🏿', scale: 2 }, { e: '🧔🏻', scale: 0 }, { e: '🧟', hue: 205, sat: 1.5, scale: 1 }, { e: '🧜‍♂️', hue: 40, scale: 1 }, { e: '🦜', scale: 0 }, { e: '🐒', scale: 0 }, { e: '🦈', scale: 2 }], boss: '☠️', bossMaxHp: 3, mode: 'ground', ninjaDecor: 'parrot', backdrop: '🏝️⛵', particleType: 'water', musicPitch: 1.08, dialogue: {
+            de: { hit: ["Arrr!", "Beim Klabautermann!", "Volle Breitseite!", "Enterhaken los!", "Yohoho!", "Mein Holzbein!", "Deck geschrubbt!", "Meine Beute!"], win: ["Mein Schatz!", "Blubb blubb...", "Versenkt!", "Zurück ins Wasser!", "Versenkt in der Tiefe!", "Das Schiff sinkt!", "Käpt'n, ich falle!", "Der Kompass dreht durch!"], lose: ["Über die Planke!", "Leinen los!", "Landratte!", "Schatzsucher-Verlierer!", "Meuterei!", "Seekrank, Ninja?", "Kein Land in Sicht!", "Haifutter!"], bossDefeat: "Käpt'n Knochenbart versinkt mit seinem Schiff!" },
+            en: { hit: ["Arrr!", "By the kraken!", "Full broadside!", "Grappling hooks away!", "Yohoho!", "My peg leg!", "Deck scrubbed!", "My loot!"], win: ["My treasure!", "Blub blub...", "Sunk!", "Back to the water!", "Sunk in the depths!", "The ship is sinking!", "Cap'n, I'm going down!", "The compass spins wild!"], lose: ["Walk the plank!", "Cast off!", "Landlubber!", "Treasure hunter loser!", "Mutiny!", "Seasick, ninja?", "No land in sight!", "Shark bait!"], bossDefeat: "Cap'n Bonebeard goes down with his ship!" }
+        } },
+        { name: 'Kanal', sky: 'linear-gradient(to bottom, #1b3a24, #0c1c11)', ground: '#2c3e50', objects: ['🪠', '🚧', '📦', '🛢️', '🧪', '💧', '🕳️', '🪣', '🧹'], skyObj: '🪰', enemies: ['🦇', '🐊', '🦟', '🦠', '🪳', '🐛', '🕷️', '🐍'], boss: '🐀', bossMaxHp: 3, mode: 'ground', ninjaDecor: 'stink', backdrop: '🕳️🧱', particleType: 'slime', musicPitch: 0.8, dialogue: {
+            de: { hit: ["Eklig!", "Igitt!", "Schleimig!", "Das war eklig!", "Schleim überall!", "Mein Schleim!", "Platsch!", "Nicht ins Rohr!"], win: ["Weggespült!", "Matsch!", "Zurück in die Kanalisation!", "Igittigitt!", "Zurück in den Sumpf!", "Den Abfluss runter!", "Ich tropfe ab!", "Das Gitter schließt sich!"], lose: ["Stinkig!", "Rattenfutter!", "Kanalratte!", "Versumpft!", "Versunken!", "Nasse Socken?", "Hier unten bleibst du!", "Gluck gluck!"], bossDefeat: "Die Riesenratte flitzt quiekend ins Rohr!" },
+            en: { hit: ["Gross!", "Ew!", "Slimy!", "That was disgusting!", "Slime everywhere!", "My slime!", "Splash!", "Not into the pipe!"], win: ["Washed away!", "Mush!", "Back to the sewer!", "Yuck!", "Back to the swamp!", "Down the drain!", "I'm dripping off!", "The grate is closing!"], lose: ["Stinky!", "Rat food!", "Sewer rat!", "Swamped!", "Sunk!", "Wet socks?", "You're staying down here!", "Glug glug!"], bossDefeat: "The giant rat squeaks and darts into the pipe!" }
+        } },
+        { name: 'Eis-Gebirge', sky: 'linear-gradient(to bottom, #0a3d62, #82ccdd)', ground: '#dff9fb', objects: ['🏔️', '⛄', '🧊', '🌨️', '🌲', '🪨', '⛷️', '🛷', '❄️'], skyObj: '❄️', enemies: ['🐧', '⛄', '🦭', '🐻‍❄️', '🦊', '🐺', '🧊', '🦉'], boss: '🦣', bossMaxHp: 4, mode: 'ground', backdrop: '🏔️⛄', particleType: 'snow', musicPitch: 0.82, dialogue: {
+            de: { hit: ["Brrr!", "Mein Schneeball!", "Eiskalt erwischt!", "Nicht die Flocken!", "Frostbeule!", "Mein Schal!", "Glatteis!", "Ganz schön kalt hier!"], win: ["Ich schmelze!", "Zurück in den Schnee!", "Der Berg ruft mich!", "Lawinen-Abgang!", "Mir wird warm...", "Zurück ins Iglu!", "Das Mammut rächt mich!", "Eingeschneit war gestern!"], lose: ["Eingefroren!", "Schneeball frei!", "Frostbeule für dich!", "Zu cool für dich!", "Lawinen-Alarm!", "Vereist!", "Zitterst du schon?", "Ab in den Schnee!"], bossDefeat: "Das große Eis-Mammut taut auf und trottet davon!" },
+            en: { hit: ["Brrr!", "My snowball!", "Ice cold hit!", "Not the flakes!", "Frostbite!", "My scarf!", "Slippery ice!", "Pretty cold up here!"], win: ["I'm melting!", "Back into the snow!", "The mountain calls me!", "Avalanche exit!", "I'm getting warm...", "Back to the igloo!", "The mammoth will avenge me!", "No more snow days!"], lose: ["Frozen solid!", "Snowball incoming!", "Frostbite for you!", "Too cool for you!", "Avalanche alert!", "Iced over!", "Shivering yet?", "Into the snow with you!"], bossDefeat: "The great Ice Mammoth thaws and trudges away!" }
+        } },
+        { name: 'Himmel', sky: 'linear-gradient(to bottom, #70a1ff, #1e90ff)', ground: 'rgba(255,255,255,0.4)', objects: ['☁️', '🎈', '🕊️', '🪁', '⚡', '🌤️', '🌈', '🪂', '🎏'], skyObj: '🎈', enemies: ['🦅', '🐝', '🕊️', '💨', '🦋', '🐦', '🦇', '🪰'], boss: '🦉', bossMaxHp: 4, mode: 'fly', backdrop: '☁️🌈', particleType: 'clouds', musicPitch: 1.2, dialogue: {
+            de: { hit: ["Gegenwind!", "Festhalten!", "Hoch hinaus!", "Turbulenzen!", "Sturmböen!", "Meine Federn!", "Luftloch!", "Windstoß!"], win: ["Absturz!", "Freier Fall!", "Zu Boden!", "Federn verloren!", "Abgestürzt in die Wolken!", "Sturzflug ohne Landung!", "Der Wind trägt mich fort!", "Wolke sieben ade!"], lose: ["Weggeblasen!", "Zu hoch!", "Schwindelig?", "Höhenangst?", "Wolkenverloren!", "Bruchlandung!", "Flügel gestutzt!", "Der Himmel lacht!"], bossDefeat: "Die Eule stürzt sanft zu Boden!" },
+            en: { hit: ["Headwind!", "Hold on!", "Higher up!", "Turbulence!", "Gusts of wind!", "My feathers!", "Air pocket!", "Gust of wind!"], win: ["Crashing down!", "Free fall!", "Grounded!", "Lost my feathers!", "Crashed into the clouds!", "Nosedive without landing!", "The wind carries me away!", "Goodbye, cloud nine!"], lose: ["Blown away!", "Too high!", "Dizzy?", "Afraid of heights?", "Lost in the clouds!", "Crash landing!", "Wings clipped!", "The sky is laughing!"], bossDefeat: "The owl gently glides to the ground!" }
+        } },
+        { name: 'Weltall', sky: 'linear-gradient(to bottom, #000211, #0f1123)', ground: '#2d3436', objects: ['🚀', '🛰️', '🪐', '☄️', '🌌', '🌠', '🌕', '🌑', '⭐'], skyObj: '⭐', enemies: ['👽', '💫', '🤖', '☄️', '🛸', '🧟', '🦠', '🌠'], boss: '👾', bossMaxHp: 4, mode: 'ufo', backdrop: '🪐🌌', particleType: 'stars', musicPitch: 1.05, dialogue: {
+            de: { hit: ["Beep boop!", "Schild aktiv!", "Energie niedrig!", "Warnung, Warnung!", "Alarm! Alarm!", "Kurzschluss!", "Antenne verbogen!", "Sauerstoff entweicht!"], win: ["Systemausfall!", "Absturz!", "Signal verloren!", "Notfallprotokoll!", "Verbindung verloren!", "Zurück zum Mutterschiff!", "Umlaufbahn verlassen!", "Sternenstaub ade!"], lose: ["Mission gescheitert!", "Erdling besiegt!", "Zurück zur Basis!", "Schwacher Erdling!", "Schwerelos besiegt!", "In den Weiten verloren!", "Schwerkraft gewinnt!", "Funkstille für dich!"], bossDefeat: "Der Weltraum-Invader zerplatzt in tausend Sterne!" },
+            en: { hit: ["Beep boop!", "Shield active!", "Energy low!", "Warning, warning!", "Alert! Alert!", "Short circuit!", "Antenna bent!", "Oxygen leaking!"], win: ["System failure!", "Crashing!", "Signal lost!", "Emergency protocol!", "Connection lost!", "Back to the mothership!", "Leaving orbit!", "Farewell, stardust!"], lose: ["Mission failed!", "Earthling defeated!", "Returning to base!", "Weak earthling!", "Defeated weightless!", "Lost in the void!", "Gravity wins!", "Radio silence for you!"], bossDefeat: "The space invader bursts into a thousand stars!" }
+        } },
+        { name: 'Tiefsee', sky: 'linear-gradient(to bottom, #005577, #001122)', ground: '#eccc68', objects: ['🪸', '🫧', '🐚', '⚓', '🏺', '🌊', '🐌', '🦪', '🗿'], skyObj: '🫧', enemies: ['🪼', '🐡', '🦈', '🐠', '🦑', '🐙', '🦐', '🐍'], boss: '🐋', bossMaxHp: 4, mode: 'swim', backdrop: '🪸🐚', particleType: 'bubbles', musicPitch: 0.75, dialogue: {
+            de: { hit: ["Blub!", "Luft anhalten!", "Glucks...", "Wasser im Ohr!", "Tiefendruck!", "Meine Tentakel!", "Tintenwolke!", "Strömungsschlag!"], win: ["Sinkflug!", "Tiefsee-Grab!", "Abgetaucht!", "Auf den Meeresgrund!", "Verschluckt von der Tiefe!", "In den Graben mit mir!", "Die Strömung nimmt mich mit!", "Meine Perle ist weg!"], lose: ["Blubber-Versager!", "Ertrunken!", "Fischfutter!", "Nass geworden?", "Meeresgrund-Versager!", "Druck zu groß?", "Luftblasen aus!", "Die Tiefe wartet!"], bossDefeat: "Der Wal taucht ab in die Tiefe!" },
+            en: { hit: ["Blub!", "Hold your breath!", "Glug...", "Water in my ear!", "Deep pressure!", "My tentacles!", "Ink cloud!", "Current strike!"], win: ["Sinking!", "Deep sea grave!", "Submerged!", "Down to the seabed!", "Swallowed by the deep!", "Into the trench with me!", "The current takes me!", "Lost my pearl!"], lose: ["Bubble loser!", "Drowned!", "Fish food!", "Got wet?", "Seabed loser!", "Too much pressure?", "Out of bubbles!", "The deep awaits!"], bossDefeat: "The whale dives down into the deep!" }
+        } },
+        { name: 'Vulkan', sky: 'linear-gradient(to bottom, #4b4036, #b34700)', ground: '#2b1b12', objects: ['🌋', '🪨', '🔥', '⛰️', '💥', '🌪️', '🦴', '☄️', '🕳️'], skyObj: '🌪️', enemies: [{ e: '🪨', filter: 'sepia(1) saturate(5) hue-rotate(-30deg) brightness(0.95)', scale: 2 }, { e: '🪨', filter: 'sepia(1) saturate(6) hue-rotate(-22deg) brightness(1.08)', scale: 1 }, { e: '💧', hue: 145, sat: 3, scale: 0 }, { e: '💧', hue: 135, sat: 3, scale: 1 }, { e: '👻', filter: 'sepia(1) saturate(7) hue-rotate(-12deg) brightness(1.15)', scale: 0 }, { e: '🔥', scale: 1 }, { e: '🌋', scale: 1 }, { e: '☄️', scale: 1 }], boss: '🗿', bossFilter: 'sepia(1) saturate(7) hue-rotate(-12deg) brightness(1.15)', bossMaxHp: 5, mode: 'ground', backdrop: '🌋⛰️', particleType: 'ash', musicPitch: 0.95, dialogue: {
+            de: { hit: ["Glühend heiß!", "Autsch!", "Brennt!", "Das Feuer brennt!", "Kochend heiß!", "Meine Glut!", "Funkenflug!", "Zisch!"], win: ["Schmilz dahin!", "Der Vulkan weint!", "Asche zu Asche!", "Zu heiß gekocht!", "Lava verschlingt dich!", "Ich erkalte!", "Nur noch Rauch...", "Der Berg verstößt mich!"], lose: ["Zu heiß für dich!", "Zu Asche!", "Verbrannt!", "Lava-Opfer!", "Versengt!", "Heiße Füße?", "Der Boden brodelt!", "Magma marsch!"], bossDefeat: "Der Magma-Golem zerbröselt zu kalter Asche!" },
+            en: { hit: ["Glowing hot!", "Ouch!", "Burning!", "The fire burns!", "Boiling hot!", "My embers!", "Sparks flying!", "Sizzle!"], win: ["Melt away!", "The volcano weeps!", "Ashes to ashes!", "Cooked too hot!", "Lava swallows you!", "I'm cooling down!", "Nothing but smoke...", "The mountain casts me out!"], lose: ["Too hot for you!", "Turned to ash!", "Burned!", "Lava victim!", "Scorched!", "Hot feet?", "The ground is boiling!", "Magma march!"], bossDefeat: "The magma golem crumbles into cold ash!" }
+        } },
+        { name: 'Drache', sky: 'linear-gradient(to bottom, #4a0000, #ff4757)', ground: '#2f3542', objects: ['💎', '👑', '🪙', '⚔️', '🗝️', '🏆', '🦴', '🔥', '🏺'], skyObj: '🔥', enemies: [{ e: '🐉', scale: 2 }, { e: '🐉', hue: 120, sat: 1.4, scale: 1 }, { e: '🐉', hue: 240, sat: 1.5, scale: 0 }, { e: '🐉', hue: 60, sat: 1.3, scale: 1 }, { e: '🥚', scale: 0 }, { e: '🦎', hue: 200, scale: 1 }, { e: '🦇', hue: 300, scale: 0 }, { e: '🐊', scale: 2 }], boss: '🐲', bossMaxHp: 5, mode: 'ground', backdrop: '⛰️💎', particleType: 'sparks', musicPitch: 0.88, dialogue: {
+            de: { hit: ["Rooar!", "Meine Schätze!", "Feuer frei!", "Zähne zeigen!", "Verbrannter Stolz!", "Meine Schuppen!", "Rauch aus den Nüstern!", "Mein Hort bebt!"], win: ["Der Drache fällt!", "Unmöglich!", "Mein Ende naht!", "Wie kann das sein?", "Der Hort ist sicher!", "Die Legende endet!", "Mein Feuer erlischt!", "Nimm den Schatz... vorerst!"], lose: ["Mein Gold!", "Gefressen!", "Zu Asche verbrannt!", "Kein Entkommen!", "Geröstet!", "Knusprig gebraten!", "Wer stört meinen Schlaf?", "Nur ein Häppchen!"], bossDefeat: "Der Drache verwandelt sich in Goldstaub!" },
+            en: { hit: ["Roar!", "My treasures!", "Fire away!", "Baring teeth!", "Burned pride!", "My scales!", "Smoke from my nostrils!", "My hoard trembles!"], win: ["The dragon falls!", "Impossible!", "My end is near!", "How can this be?", "The hoard is safe!", "The legend ends!", "My fire goes out!", "Take the treasure... for now!"], lose: ["My gold!", "Devoured!", "Burned to ash!", "No escape!", "Roasted!", "Roasted crispy!", "Who disturbs my sleep?", "Just a snack!"], bossDefeat: "The dragon turns into golden dust!" }
+        } },
+        // Welt 16 (versteckt): Der Endkampf gegen Fürst Null. Wird nie regulär erreicht,
+        // sondern nur nach Abschluss von Welt 15 in Klasse 3/4 gestartet. Der Wächter-Modus
+        // wählt ausschließlich die Welten 1-15, sodass Fürst Null einzigartig bleibt.
+        { name: 'Fürst Null', sky: 'linear-gradient(to bottom, #0d001a, #2b0a4a)', ground: '#1a1a2e', objects: ['🌀', '🕳️', '⛓️', '🕯️', '🌑', '🪞', '🗿', '⚡', '🔮'], skyObj: '🌀', enemies: [], boss: '👹', bossMaxHp: 10, mode: 'ground', backdrop: '🌀🕳️', particleType: 'stars', musicPitch: 0.6, dialogue: {
+            de: { hit: ["Unmöglich!", "Die Leere bebt!", "Deine Zahlen... sie brennen!", "Argh!", "Meine Dunkelheit schwindet!", "Du wagst es?!", "Die Null zittert!", "Mein Reich bröckelt!", "Das Licht... zu hell!", "Nichts kann mich treffen!"], win: ["Alles wird Null!"], lose: ["Alles wird Null!", "Die Leere verschlingt dich!", "Zahlen sind nichts!", "Knie nieder, Ninja!", "Dein Ende naht!", "Damit hast du nicht gerechnet!", "Die Dunkelheit siegt!", "Mathilda bleibt mein!"], bossDefeat: "Fürst Null zerfällt zu Sternenstaub - Zahlenland ist gerettet!" },
+            en: { hit: ["Impossible!", "The void trembles!", "Your numbers... they burn!", "Argh!", "My darkness is fading!", "You dare?!", "Zero is shaking!", "My realm is crumbling!", "The light... too bright!", "Nothing can hit me!"], win: ["All becomes zero!"], lose: ["All becomes zero!", "The void devours you!", "Numbers are nothing!", "Kneel, ninja!", "Your end is near!", "You didn't count on this!", "Darkness prevails!", "Mathilda stays mine!"], bossDefeat: "Lord Zero crumbles into stardust - Numberland is saved!" }
+        } }
+    ];
+    
+    // Robuste Emojis für fehlerfreie Darstellung im Shop
+    const skins = ["🥷", "👺", "🐯", "🐱"];
+
+    /* =========================================
+       DATEN-MANAGEMENT
+    ========================================= */
+    function loadAllData() { 
+        const stored = localStorage.getItem('mathwarrior_all_data'); 
+        if (stored) {
+            appData = JSON.parse(stored); 
+            if (!appData.inventory) appData.inventory = { bomb: 1, shield: 0, hourglass: 0, heart: 0 };
+            if (!appData.wheelStash) appData.wheelStash = { bomb: 0, shield: 0, hourglass: 0, heart: 0, coins: 0 };
+            if (!appData.language) appData.language = "de";
+            // Ab dieser Version gibt es nur noch EINE Bestenliste. Ältere Spielstände mit
+            // getrennten Listen für Klasse 1/2 und 3/4 werden zusammengeführt, sortiert
+            // und auf die besten 10 gekürzt - es geht kein Eintrag verloren.
+            if (appData.highscores && !Array.isArray(appData.highscores)) {
+                const merged = [];
+                ["1-2", "3-4"].forEach(g => {
+                    (appData.highscores[g] || []).forEach(e => merged.push({ name: e.name, score: e.score, grade: e.grade || g }));
+                });
+                merged.sort((a, b) => b.score - a.score);
+                appData.highscores = merged.slice(0, 10);
+            }
+            if (!Array.isArray(appData.highscores) || appData.highscores.length === 0) {
+                appData.highscores = [{ name: "Meister", score: 30, grade: "1-2" }];
+            }
+        }
+        if (!appData.lastWheelDate) appData.lastWheelDate = ""; 
+        if (appData.introSeen === undefined) appData.introSeen = false;
+        if (appData.storyCompleted === undefined) appData.storyCompleted = false;
+    }
+
+    function saveAllData() { 
+        localStorage.setItem('mathwarrior_all_data', JSON.stringify(appData)); 
+    }
+
+    // HINWEIS (Edge-to-Edge): Ab Android 15 zeichnen Apps bis unter Status- und Navigationsleiste.
+    // Capacitor 8 liefert die korrekten Abstände über die CSS-Variablen --safe-area-inset-*
+    // (SystemBars-Plugin, siehe capacitor.config.json). Die früheren geratenen Ersatzwerte
+    // (28px / 32px) sind damit ersatzlos entfallen - das Fenster rückt sich auf jedem Gerät
+    // selbst korrekt ein. Im Browser greift env(safe-area-inset-*) als Rückfallebene.
+
+    window.onload = function() { 
+        loadAllData(); 
+        currentLang = appData.language || 'de';
+        document.getElementById('flag-de').classList.toggle('active-flag', currentLang === 'de');
+        document.getElementById('flag-en').classList.toggle('active-flag', currentLang === 'en');
+        applyStaticTranslations();
+        checkSavedGameButton(); 
+    };
+
+    function checkSavedGameButton() { 
+        let hasValidSave = false;
+        try { 
+            const s = JSON.parse(localStorage.getItem('mathwarrior_current_save')); 
+            hasValidSave = !!(s && s.v === 2 && s.world <= 16); 
+        } catch(e) {}
+        if (!hasValidSave) localStorage.removeItem('mathwarrior_current_save');
+        document.getElementById('resume-btn').style.display = hasValidSave ? 'block' : 'none'; 
+    }
+
+    /* =========================================
+       AUDIO-LOGIK
+    ========================================= */
+    function initAudio() { 
+        if (!audioCtx) { 
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)(); 
+            startProceduralMusic(); 
+        } 
+        // FIX: Im Hintergrund (Home-Button, Bildschirm aus, App gewechselt) darf der Ton
+        // NICHT wieder aufgeweckt werden. Vorher konnte ein noch laufender Timer im
+        // Hintergrund einen Sound auslösen -> initAudio() hat die Musik wieder gestartet.
+        if (audioCtx.state === 'suspended' && !appInBackground && !document.hidden) {
+            audioCtx.resume(); 
+        }
+    }
+
+    function playRetroSound(type) {
+        if (isMuted) return; 
+        // Kein Ton, solange die App im Hintergrund ist (siehe initAudio)
+        if (appInBackground || document.hidden) return;
+        initAudio();
+
+        if (type === 'correct') { 
+            playToneEffect(523.25, 0.1, 'sine', 0.08); 
+            setTimeout(() => playToneEffect(659.25, 0.15, 'sine', 0.08), 80); 
+        } else if (type === 'hit') { 
+            playToneEffect(140, 0.2, 'sawtooth', 0.2); 
+            playToneEffect(90, 0.25, 'triangle', 0.2); 
+        } else if (type === 'item' || type === 'wheel') { 
+            playToneEffect(300, 0.08, 'sine', 0.08); 
+            setTimeout(() => playToneEffect(900, 0.1, 'sine', 0.08), 60); 
+        } else if (type === 'boss') { 
+            playToneEffect(110, 0.3, 'sawtooth', 0.2); 
+        } else if (type === 'shieldbreak') {
+            playToneEffect(700, 0.08, 'sine', 0.15);
+            setTimeout(() => playToneEffect(1000, 0.12, 'sine', 0.15), 70);
+        } else if (type === 'worldclear') {
+            const notes = [523.25, 659.25, 783.99, 1046.50]; 
+            notes.forEach((f, i) => setTimeout(() => playToneEffect(f, 0.15, 'triangle', 0.08), i * 90));
+        }
+    }
+
+    function playToneEffect(freq, duration, type, volume) {
+        try { 
+            const now = audioCtx.currentTime; 
+            let osc = audioCtx.createOscillator(); 
+            let gain = audioCtx.createGain(); 
+            osc.type = type; 
+            osc.frequency.value = freq; 
+            
+            gain.gain.setValueAtTime(volume, now); 
+            gain.gain.exponentialRampToValueAtTime(0.00001, now + duration); 
+            
+            osc.connect(gain); 
+            gain.connect(audioCtx.destination); 
+            osc.start(); 
+            osc.stop(now + duration); 
+        } catch(e){}
+    }
+
+    // Drei verschiedene Melodie-Muster (Pentatonik-Verhältnisse, klingen immer harmonisch).
+    // Welche Melodie gespielt wird, hängt von der aktuellen Welt ab -> Abwechslung beim Weltenwechsel.
+    const melodyPatterns = [
+        [1, 1.25, 1.5, 2, 1.667, 1.5, 1.25, 1],          // Melodie A: aufsteigend & zurück
+        [1.5, 1.667, 2, 1.667, 1.5, 1.25, 1.125, 1.25],  // Melodie B: hoch beginnend, wellenförmig
+        [1, 1.125, 1.25, 1.5, 1.667, 1.5, 1.25, 1.125]   // Melodie C: sanft treppauf/treppab
+    ];
+
+    // Eigene Melodie für den Endkampf gegen Fürst Null (Welt 16): Moll-Terz (1.189),
+    // Tritonus (1.414 - das historische "Teufelsintervall") und eine kleine Sekunde nach
+    // unten (0.944). Klingt bewusst unaufgelöst und bedrohlich statt harmonisch.
+    const DARK_MELODY = [1, 1.189, 1.414, 1.189, 1, 0.944, 1.414, 1.059];
+    const FINAL_WORLD = 16;
+
+    function startProceduralMusic() {
+        const bassNotes = [110.00, 110.00, 130.81, 146.83, 110.00, 110.00, 164.81, 146.83];
+        
+        function tick() {
+            const gameActive = document.getElementById('game-screen').classList.contains('active');
+            const isBossFight = gameActive && currentEnemyCount === 10;
+            const isWalkingPhase = gameActive && document.getElementById('scenery').classList.contains('walking');
+            
+            // Die Musik läuft jetzt IMMER durch - die Dramatik entsteht über das Tempo:
+            // Laufen = gemütlich, Kampf = schneller, Bosskampf = am schnellsten.
+            // Der Endkampf läuft bewusst langsamer und schwerer als ein normaler Bosskampf
+            const interval = (gameActive && currentWorld === FINAL_WORLD) ? 420
+                           : (isBossFight ? 260 : (isWalkingPhase ? 500 : 380));
+            
+            if (!isMuted && !isPaused && !appInBackground && !document.hidden && gameActive && audioCtx) {
+                try {
+                    const worldObj = worldsConfig[(currentWorld - 1) % worldsConfig.length];
+                    const pitch = worldObj.musicPitch || 1;
+                    
+                    let note = bassNotes[musicBeat % bassNotes.length] * pitch;
+                    if (isBossFight) note = note * 0.75;
+                    // Endkampf: Bass noch eine Terz tiefer, dazu ein schleppender Puls
+                    if (currentWorld === FINAL_WORLD) note = note * 0.8;
+                    
+                    const now = audioCtx.currentTime; 
+                    let osc = audioCtx.createOscillator(); 
+                    let gain = audioCtx.createGain(); 
+                    
+                    // Im Endkampf ein rauer Sägezahn-Bass statt des runden Dreiecks
+                    osc.type = (currentWorld === FINAL_WORLD) ? 'sawtooth' : 'triangle'; 
+                    osc.frequency.value = note; 
+                    
+                    // Beim Laufen etwas leiser, im Bosskampf präsenter (insgesamt angehoben)
+                    const bassVolume = isWalkingPhase ? 0.018 : (isBossFight ? 0.035 : 0.028);
+                    gain.gain.setValueAtTime(bassVolume, now); 
+                    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.35); 
+                    
+                    osc.connect(gain); 
+                    gain.connect(audioCtx.destination); 
+                    osc.start(); 
+                    osc.stop(now + 0.4); 
+                    
+                    // Dezenter Percussion-Tick auf den Zwischenbeats (gibt der Musik Puls)
+                    if (musicBeat % 2 === 1) playPercussionTick(isBossFight);
+                    
+                    // Melodie-Stimme läuft jetzt auch beim Laufen mit (nur leiser)
+                    if (musicBeat % 2 === 0) playMelodyNote(musicBeat, pitch, isBossFight, isWalkingPhase);
+                    
+                    musicBeat++; 
+                } catch(e){}
+            }
+            
+            musicInterval = setTimeout(tick, interval);
+        }
+        
+        tick();
+    }
+
+    function playMelodyNote(beatIndex, pitch, isBossFight, isWalkingPhase) {
+        try {
+            // Melodie-Muster abhängig von der aktuellen Welt wählen (wechselt alle 1-2 Welten)
+            const isFinalBattle = (currentWorld === FINAL_WORLD);
+            const pattern = isFinalBattle 
+                ? DARK_MELODY 
+                : melodyPatterns[(currentWorld - 1) % melodyPatterns.length];
+            // Im Endkampf eine Oktave tiefer - das nimmt der Melodie das Helle
+            const baseFreq = (isFinalBattle ? 138 : 220) * pitch;
+            const freq = baseFreq * pattern[Math.floor(beatIndex / 2) % pattern.length];
+            
+            const now = audioCtx.currentTime;
+            let osc = audioCtx.createOscillator();
+            let gain = audioCtx.createGain();
+            
+            // Sinus klingt weich und freundlich - im Endkampf stattdessen ein rauer Sägezahn
+            osc.type = isFinalBattle ? 'sawtooth' : 'sine';
+            osc.frequency.value = (isBossFight && !isFinalBattle) ? freq * 1.1 : freq;
+            
+            gain.gain.setValueAtTime(isWalkingPhase ? 0.012 : 0.022, now);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.3);
+            
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(now + 0.3);
+        } catch(e){}
+    }
+
+    function playPercussionTick(isBossFight) {
+        try {
+            const now = audioCtx.currentTime;
+            let osc = audioCtx.createOscillator();
+            let gain = audioCtx.createGain();
+            
+            osc.type = 'square';
+            osc.frequency.value = isBossFight ? 2200 : 1800;
+            
+            gain.gain.setValueAtTime(0.008, now);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.05);
+            
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(now + 0.06);
+        } catch(e){}
+    }
+
+    function toggleMute() { 
+        isMuted = !isMuted; 
+        if (!isMuted) initAudio(); 
+        document.querySelectorAll('.mute-toggle').forEach(b => b.innerText = isMuted ? '🔇' : '🔊'); 
+    }
+
+    // Audio pausieren, sobald die App/Seite in den Hintergrund geht (Tab-Wechsel, Home-Button, Sperrbildschirm).
+    // Mehrere Events kombiniert, da sich WebViews (z.B. in der APK) bei visibilitychange nicht immer zuverlässig verhalten.
+    function pauseAudioForBackground() {
+        appInBackground = true;
+        if (audioCtx) { try { audioCtx.suspend(); } catch(e) {} }
+    }
+    function resumeAudioForForeground() {
+        appInBackground = false;
+        if (audioCtx && !isMuted) { try { audioCtx.resume(); } catch(e) {} }
+    }
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) pauseAudioForBackground(); else resumeAudioForForeground();
+    });
+    window.addEventListener('pagehide', pauseAudioForBackground);
+    window.addEventListener('blur', pauseAudioForBackground);
+    window.addEventListener('pageshow', resumeAudioForForeground);
+    window.addEventListener('focus', resumeAudioForForeground);
+
+    /* =========================================
+       UI & SCREEN-STEUERUNG
+    ========================================= */
+    function showScreen(screenId) {
+        document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+        document.getElementById(screenId).classList.add('active');
+        
+        if(screenId === 'highscore-screen') displayHighscores();
+        if(screenId === 'shop-screen') updateShopUI();
+        if(screenId === 'start-screen') checkSavedGameButton();
+    }
+
+    function spawnParticles(type, count) {
+        const container = document.getElementById('particles-container');
+        for(let i=0; i<count; i++) {
+            let p = document.createElement('div');
+            p.className = 'particle';
+            p.innerText = (type === 'bubbles') ? '🫧' : (type === 'sparks') ? '✨' : (type === 'stars') ? '⭐' : (type === 'snow') ? '❄️' : (type === 'candy') ? '🍬' : (type === 'sand') ? '🪙' : (type === 'slime') ? '🟢' : (type === 'clouds') ? '☁️' : (type === 'water') ? '💧' : (type === 'dust') ? '💨' : (type === 'ash') ? '🌫️' : '🍃';
+            p.style.left = (Math.random() * 80 + 10) + '%';
+            p.style.bottom = (Math.random() * 20 + 20) + '%';
+            container.appendChild(p);
+            setTimeout(() => p.remove(), 1500);
+        }
+    }
+
+    // Anzeigedauer der Sprechblasen: Klasse 1/2 liest deutlich langsamer -> länger einblenden,
+    // außerdem wächst die Dauer mit der Textlänge
+    function speechDuration(text) {
+        const young = (selectedGrade === "1-2");
+        return Math.min((young ? 2800 : 1800) + text.length * (young ? 110 : 50), 7000);
+    }
+
+    // maxMs (optional) begrenzt die Anzeigedauer, z. B. damit der Spott nach einem Treffer
+    // sicher verschwunden ist, bevor der nächste Gegner erscheint (Tester-Punkt 1)
+    function showMonsterSpeech(text, maxMs) {
+        const bubble = document.getElementById('monster-speech');
+        clearTimeout(speechTimeout);
+        bubble.innerText = text; 
+        bubble.style.display = 'block';
+        const dur = maxMs ? Math.min(speechDuration(text), maxMs) : speechDuration(text);
+        speechHideAt = Math.max(speechHideAt, Date.now() + dur);
+        speechTimeout = setTimeout(() => bubble.style.display = 'none', dur);
+    }
+
+    function showNinjaSpeech(text, maxMs) {
+        const bubble = document.getElementById('ninja-speech');
+        clearTimeout(ninjaSpeechTimeout);
+        bubble.innerText = text;
+        bubble.style.display = 'block';
+        const dur = maxMs ? Math.min(speechDuration(text), maxMs) : speechDuration(text);
+        speechHideAt = Math.max(speechHideAt, Date.now() + dur);
+        ninjaSpeechTimeout = setTimeout(() => bubble.style.display = 'none', dur);
+    }
+
+    // Blendet beide Sprechblasen sofort aus - Sicherheitsnetz beim Erscheinen eines neuen
+    // Gegners bzw. beim Start einer neuen Welt (Tester-Punkt 1)
+    function hideSpeechBubbles() {
+        clearTimeout(speechTimeout);
+        clearTimeout(ninjaSpeechTimeout);
+        document.getElementById('monster-speech').style.display = 'none';
+        document.getElementById('ninja-speech').style.display = 'none';
+        speechHideAt = 0;
+    }
+
+    /* =========================================
+       GLÜCKSRAD
+    ========================================= */
+    function getTodayString() { 
+        const d = new Date(); 
+        return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; 
+    }
+
+    function openWheel() {
+        initAudio(); 
+        document.getElementById('wheel-anim').classList.remove('wheel-error-shake'); 
+        document.getElementById('wheel-anim').style.transform = 'none';
+        
+        const today = getTodayString();
+        
+        if (appData.lastWheelDate === today) { 
+            document.getElementById('spin-btn').disabled = true; 
+            document.getElementById('spin-btn').innerText = T[currentLang].wheelSpinAgainTomorrow; 
+        } else { 
+            document.getElementById('spin-btn').disabled = false; 
+            document.getElementById('spin-btn').innerText = T[currentLang].wheelSpinBtn; 
+        }
+        document.getElementById('wheel-overlay').style.display = 'flex';
+    }
+
+    function closeWheel() { 
+        document.getElementById('wheel-overlay').style.display = 'none'; 
+    }
+
+    function spinWheel() {
+        const today = getTodayString();
+        
+        if (appData.lastWheelDate === today) { 
+            document.getElementById('wheel-anim').classList.add('wheel-error-shake'); 
+            setTimeout(() => document.getElementById('wheel-anim').classList.remove('wheel-error-shake'), 400); 
+            return; 
+        }
+        
+        document.getElementById('spin-btn').disabled = true; 
+        appData.lastWheelDate = today; 
+        saveAllData();
+        
+        playRetroSound('wheel'); 
+        const wheel = document.getElementById('wheel-anim'); 
+        wheel.style.transform = `rotate(${1800 + Math.floor(Math.random() * 360)}deg)`;
+        
+        setTimeout(() => {
+            const wp = T[currentLang].wheelPrizes;
+            // Alle Gewinne werden zusätzlich im "wheelStash" vermerkt: Sie überleben dadurch
+            // ein Game Over bzw. den Münzen-Reset beim neuen Spiel, bis sie benutzt wurden.
+            const prizes = [ 
+                {txt: wp.coins5, action: () => { appData.totalCoins += 5; appData.wheelStash.coins += 5; }}, 
+                {txt: wp.bomb1, action: () => { appData.inventory.bomb++; appData.wheelStash.bomb++; }}, 
+                {txt: wp.shield1, action: () => { appData.inventory.shield++; appData.wheelStash.shield++; }}, 
+                {txt: wp.hourglass1, action: () => { appData.inventory.hourglass++; appData.wheelStash.hourglass++; }}, 
+                {txt: wp.coins10, action: () => { appData.totalCoins += 10; appData.wheelStash.coins += 10; }} 
+            ];
+            // Herz nur als möglichen Gewinn anbieten, wenn das Maximum noch nicht erreicht ist
+            if ((appData.inventory.heart || 0) < MAX_HEART_INVENTORY) {
+                prizes.push({txt: wp.heart1, action: () => { 
+                    appData.inventory.heart = (appData.inventory.heart || 0) + 1; 
+                    appData.wheelStash.heart = (appData.wheelStash.heart || 0) + 1; 
+                }});
+            }
+            const finalPrize = prizes[Math.floor(Math.random() * prizes.length)];
+            
+            finalPrize.action(); 
+            saveAllData(); 
+            playRetroSound('correct'); 
+            closeWheel();
+            
+            showRewardOverlay(T[currentLang].rewardWheelTitle, T[currentLang].rewardWheelBody(finalPrize.txt));
+        }, 3100);
+    }
+
+    /* =========================================
+       SHOP & ITEMS
+    ========================================= */
+    function updateShopUI() {
+        document.getElementById('shop-coins').innerText = '🪙 ' + appData.totalCoins;
+        // Zusätzliche Absicherung: Münzen-Anzeige im nächsten Frame nochmal setzen,
+        // falls es in manchen WebViews zu Rendering-Verzögerungen kommt.
+        requestAnimationFrame(() => {
+            const el = document.getElementById('shop-coins');
+            if (el) el.innerText = '🪙 ' + appData.totalCoins;
+        });
+        
+        for(let i=0; i<4; i++) {
+            let item = document.getElementById('skin-' + i);
+            if(item) {
+                item.className = 'shop-item';
+                if(appData.ownedSkins.includes(i)) { 
+                    item.classList.add('owned'); 
+                    item.querySelector('small').innerText = T[currentLang].ownedLabel; 
+                }
+                if(appData.equippedSkinIndex === i) { 
+                    item.classList.add('equipped'); 
+                    item.querySelector('small').innerText = T[currentLang].equippedLabel; 
+                }
+            }
+        }
+        // Kaufbare Items ausgrauen, wenn nicht leistbar (bzw. beim Herz: auch wenn Maximum erreicht)
+        const itemPrices = { bomb: 5, shield: 4, hourglass: 3 };
+        for (const key in itemPrices) {
+            const el = document.getElementById('item-' + key);
+            if (el) el.classList.toggle('unaffordable', appData.totalCoins < itemPrices[key]);
+        }
+        const heartEl = document.getElementById('item-heart');
+        if (heartEl) heartEl.classList.toggle('unaffordable', !canBuyHeart());
+        
+        // FIX (Tester-Punkt 4): Wird der Shop aus einem laufenden Spiel geöffnet, zeigt die
+        // Herz-Anzeige die AKTUELLEN Leben (nicht das - im Spiel immer leere - Herz-Inventar).
+        const heartCount = cameFromPause ? lives : (appData.inventory.heart || 0);
+        document.getElementById('inventory-summary').innerText = `${T[currentLang].inventoryLabel} 💣${appData.inventory.bomb} | 🛡️${appData.inventory.shield} | ⏳${appData.inventory.hourglass} | ❤️${heartCount}`;
+    }
+
+    function buyItem(key, price) { 
+        if (appData.totalCoins >= price) { 
+            appData.totalCoins -= price; 
+            appData.inventory[key]++; 
+            saveAllData(); 
+            playRetroSound('item'); 
+            updateShopUI(); 
+            if(cameFromPause) updateUI(); 
+        } 
+    }
+    
+    function canBuyHeart() {
+        if (appData.totalCoins < 100) return false;
+        if (cameFromPause) return lives < MAX_LIVES;
+        return (appData.inventory.heart || 0) < MAX_HEART_INVENTORY;
+    }
+
+    function buyHeart() {
+        if (!canBuyHeart()) return;
+        
+        appData.totalCoins -= 100;
+        
+        if (cameFromPause) {
+            lives++;
+            saveGameProgress();
+        } else {
+            appData.inventory.heart = (appData.inventory.heart || 0) + 1;
+        }
+        
+        saveAllData();
+        playRetroSound('item');
+        updateShopUI();
+        if(cameFromPause) updateUI();
+    }
+
+    function buyOrEquipSkin(i, price) {
+        if(appData.ownedSkins.includes(i)) {
+            appData.equippedSkinIndex = i;
+            saveAllData();
+            playRetroSound('item');
+        } else if(appData.totalCoins >= price) {
+            appData.totalCoins -= price;
+            appData.ownedSkins.push(i);
+            appData.equippedSkinIndex = i;
+            saveAllData();
+            playRetroSound('correct');
+        }
+        updateShopUI();
+        // FIX: Wird der Shop aus der Pause heraus geöffnet, läuft im Hintergrund ein Spiel weiter.
+        // Ohne dieses Update blieb der Ninja dort optisch beim alten Outfit, bis der nächste Gegner
+        // erschien - das wirkte wie ein Fehlkauf, obwohl appData.equippedSkinIndex korrekt war.
+        // Sicher, weil Pause (seit dem Pause-Umbau) nur in der Laufphase möglich ist - dort gibt es
+        // keine Angriffs-Animation, die durch das Zurücksetzen der Ninja-Klasse unterbrochen würde.
+        if (cameFromPause) setupEnvironment(false);
+    }
+    
+    /* =========================================
+       PAUSE-SYSTEM
+    ========================================= */
+    function togglePause() { 
+        if (isPaused) { 
+            // Fortsetzen: Wartet bereits ein Gegner mit Aufgabe, startet der Timer -
+            // wurde in der Laufphase pausiert, läuft einfach das Laufen weiter
+            isPaused = false; 
+            pauseRequested = false; 
+            document.getElementById('pause-overlay').style.display = 'none'; 
+            if (!walkPhase) startTimer(); 
+            updateUI(); 
+            return; 
+        } 
+        
+        // NEU: Der Pause-Button ist nur in der Laufphase sichtbar und wirkt dort sofort.
+        // Während einer Aufgabe ist er ausgeblendet - kein "Pause-Trick" und keine
+        // Verwirrung mehr, warum der Button nicht sofort reagiert.
+        if (walkPhase) engagePause(); 
+    }
+
+    function engagePause() {
+        isPaused = true; 
+        pauseRequested = false; 
+        document.getElementById('pause-btn').classList.remove('pause-pending'); 
+        clearInterval(timerInterval); 
+        document.getElementById('pause-overlay').style.display = 'flex'; 
+        updateUI(); 
+    }
+
+    function openShopFromPause() { 
+        cameFromPause = true; 
+        document.getElementById('shop-back-btn').innerText = T[currentLang].backToGameBtn; 
+        showScreen('shop-screen'); 
+    }
+
+    function closeShop() { 
+        document.getElementById('shop-back-btn').innerText = T[currentLang].backBtn; 
+        
+        if (cameFromPause) { 
+            cameFromPause = false; 
+            showScreen('game-screen'); 
+            document.getElementById('pause-overlay').style.display = 'flex'; 
+        } else { 
+            showScreen('start-screen'); 
+        } 
+    }
+
+    function exitToMainMenu() { 
+        clearInterval(timerInterval); 
+        walkPhase = false;
+        document.getElementById('pause-btn').style.visibility = 'visible';
+        isPaused = false; 
+        document.getElementById('pause-overlay').style.display = 'none'; 
+        saveGameProgress(); 
+        showScreen('start-screen'); 
+    }
+
+    /* =========================================
+       GAMEPLAY-LOGIK & EINGABE
+    ========================================= */
+    function pressKey(key) { 
+        if (isWaiting || isPaused) return; 
+        initAudio(); 
+        
+        const display = document.getElementById('touch-display-area'); 
+        
+        if (key === 'CLR') { 
+            currentInputStr = currentInputStr.slice(0, -1); 
+        } else { 
+            if (currentInputStr.length < 5) currentInputStr += key; 
+        } 
+        display.innerText = currentInputStr; 
+    }
+
+    function startGame() { 
+        // Die Intro-Sequenz wird bei jedem neuen Spiel gezeigt - passend zur gewählten Klassenstufe.
+        // (Klasse 1/2: die Prüfung beginnt; Klasse 3/4: die Prinzessin wurde bereits entführt)
+        const grade = document.getElementById('grade-select').value;
+        const slides = grade === '3-4' ? T[currentLang].introSlidesAdvanced : T[currentLang].introSlides;
+        showCutscene(slides, T[currentLang].promotionStartBtn, () => {
+            appData.introSeen = true;
+            saveAllData();
+            actuallyStartGame();
+        }, { growNinja: false });
+    }
+
+    function actuallyStartGame() { 
+        initAudio(); 
+        
+        // FIX (Tester-Punkt 2): Jedes neue Spiel startet mit genau 1 Bombe plus dem,
+        // was am Glücksrad gewonnen (und noch nicht benutzt) wurde. Im Shop gekaufte
+        // Items verfallen beim Start eines neuen Spiels - sonst wird es zu leicht.
+        const ws = appData.wheelStash || { bomb: 0, shield: 0, hourglass: 0, heart: 0, coins: 0 };
+        appData.inventory = { 
+            bomb: 1 + (ws.bomb || 0), 
+            shield: ws.shield || 0, 
+            hourglass: ws.hourglass || 0, 
+            heart: Math.min(ws.heart || 0, MAX_HEART_INVENTORY) 
+        };
+        
+        lives = 3 + (appData.inventory.heart || 0); 
+        appData.inventory.heart = 0; 
+        // Eingesetzte Herzen gelten als verbraucht - auch im Glücksrad-Vorrat
+        appData.wheelStash.heart = 0; 
+        coins = 0; 
+        score = 0; 
+        isWaiting = false; 
+        currentEnemyCount = 1; 
+        shieldActive = false; 
+        isPaused = false; 
+        pauseRequested = false;
+        document.getElementById('pause-btn').classList.remove('pause-pending');
+        currentWorld = 1; 
+        bossHp = 0; 
+        comboStreak = 0; 
+        
+        // Jedes neue Spiel beginnt immer mit dem klassischen Ninja - 
+        // andere Outfits müssen im Shop erneut gekauft werden
+        appData.ownedSkins = [0]; 
+        appData.equippedSkinIndex = 0; 
+        
+        // FIX: Auch die Münzen starten bei jedem neuen Spiel wieder bei 0.
+        // (Gekaufte Items bleiben erhalten - übrige Münzen kann man also vor dem
+        // Neustart noch im Shop in Items investieren.)
+        // AUSNAHME: Am Glücksrad gewonnene Münzen werden ins neue Spiel mitgenommen!
+        // Sie gelten damit als "eingesetzt" und werden aus dem Glücksrad-Vorrat entfernt.
+        appData.totalCoins = Math.min(appData.wheelStash.coins || 0, appData.totalCoins); 
+        appData.wheelStash.coins = 0; 
+        
+        saveAllData(); 
+        selectedGrade = document.getElementById('grade-select').value; 
+        localStorage.removeItem('mathwarrior_current_save'); 
+        
+        initGameplay(); 
+    }
+
+    function replayIntroStory() {
+        const grade = document.getElementById('grade-select').value;
+        const slides = grade === '3-4' ? T[currentLang].introSlidesAdvanced : T[currentLang].introSlides;
+        showCutscene(slides, T[currentLang].backBtn, () => {}, { growNinja: false });
+    }
+
+    function resumeGame() { 
+        initAudio(); 
+        const save = JSON.parse(localStorage.getItem('mathwarrior_current_save')); 
+        // Spielstände aus älteren Versionen (12-Welten-Struktur) passen nicht mehr und werden verworfen
+        if (!save || save.v !== 2 || save.world > 16) { 
+            localStorage.removeItem('mathwarrior_current_save'); 
+            checkSavedGameButton(); 
+            return; 
+        } 
+        
+        // FIX: Maximal-Leben (5) auch beim Weiterspielen einhalten. Es werden nur so viele
+        // gespeicherte Herzen verbraucht, wie noch Platz ist - der Rest bleibt im Inventar.
+        const heartsToUse = Math.min(appData.inventory.heart || 0, MAX_LIVES - save.lives);
+        lives = save.lives + Math.max(0, heartsToUse); 
+        appData.inventory.heart = (appData.inventory.heart || 0) - Math.max(0, heartsToUse); 
+        appData.wheelStash.heart = Math.min(appData.wheelStash.heart || 0, appData.inventory.heart); 
+        saveAllData(); 
+        coins = save.coins; 
+        score = save.score; 
+        currentEnemyCount = save.enemyCount; 
+        selectedGrade = save.grade; 
+        currentWorld = save.world || 1; 
+        bossHp = save.bossHp || 0; 
+        
+        // FIX: Schild und Kombo-Serie aus dem Spielstand wiederherstellen (vorher hart auf
+        // 0 bzw. false gesetzt - das aktive Schild war nach dem Weiterspielen verschwunden).
+        shieldActive = !!save.shield; 
+        comboStreak = save.combo || 0; 
+        restoreTaskMemory = Array.isArray(save.taskMemory) ? save.taskMemory : null; 
+        isWaiting = false; 
+        isPaused = false; 
+        pauseRequested = false;
+        document.getElementById('pause-btn').classList.remove('pause-pending');
+        
+        document.getElementById('grade-select').value = selectedGrade; 
+        initGameplay(); 
+    }
+
+    function saveGameProgress() { 
+        // FIX: Ein aktives Schild und die Kombo-Serie gehören zum Spielstand. Vorher gingen
+        // beide verloren, sobald man über das Pausemenü ins Hauptmenü ging und danach
+        // weiterspielte - das gekaufte Schild war schlicht weg.
+        // Auch das Aufgaben-Gedächtnis wird mitgenommen, damit sich Aufgaben nach dem
+        // Weiterspielen nicht sofort wiederholen.
+        localStorage.setItem('mathwarrior_current_save', JSON.stringify({ 
+            v: 2, lives, coins, score, enemyCount: currentEnemyCount, grade: selectedGrade, 
+            world: currentWorld, bossHp, shield: shieldActive, combo: comboStreak, 
+            taskMemory: recentTaskTexts 
+        })); 
+    }
+
+    function initGameplay() { 
+        // Aufgaben-Gedächtnis: beim Weiterspielen aus dem Spielstand übernehmen,
+        // sonst (neues Spiel / neue Welt) zurücksetzen (Tester-Punkt 9)
+        recentTaskTexts = restoreTaskMemory || []; 
+        restoreTaskMemory = null;
+        document.getElementById('shield-bubble').style.display = shieldActive ? 'block' : 'none'; 
+        updateUI(); 
+        setupEnvironment(true); 
+        spawnEnemy(); 
+        showScreen('game-screen'); 
+    }
+
+    function updateUI() {
+        document.getElementById('lives-display').innerText = '❤️ '.repeat(lives); 
+        // FIX: Im Spiel wird jetzt der Gesamt-Münzstand angezeigt (identisch mit dem Shop).
+        // Vorher wurden hier nur die Runden-Münzen angezeigt, wodurch Käufe im Shop
+        // scheinbar "nicht abgezogen" wurden.
+        document.getElementById('coins-display').innerText = '🪙 ' + appData.totalCoins; 
+        document.getElementById('score-display').innerText = '⭐ ' + score;
+        
+        const worldObj = worldsConfig[(currentWorld - 1) % worldsConfig.length];
+        // Im Endkampf gegen Fürst Null ein eigenes Label statt "Welle X/10" (Punkt 8)
+        document.getElementById('world-indicator').innerText = (currentWorld === 16) 
+            ? T[currentLang].finalBossLabel 
+            : T[currentLang].waveLabel(T[currentLang].worldNames[worldObj.name] || worldObj.name, currentEnemyCount);
+        
+        document.getElementById('wave-progress-bar').style.width = (currentEnemyCount * 10) + '%';
+        
+        document.getElementById('hud-bomb-count').innerText = appData.inventory.bomb; 
+        document.getElementById('hud-shield-count').innerText = appData.inventory.shield; 
+        document.getElementById('hud-time-count').innerText = appData.inventory.hourglass;
+        
+        if(currentEnemyCount === 10 && bossHp > 0) { 
+            document.getElementById('boss-hp-container').style.display = 'block'; 
+            // Bei Bossen mit vielen Leben (Fürst Null: 10) kompakt als Zahl statt Herzen-Reihe
+            document.getElementById('boss-hearts').innerText = (worldObj.bossMaxHp > 5) 
+                ? `❤️ ${bossHp} / ${worldObj.bossMaxHp}` 
+                : '❤️ '.repeat(bossHp); 
+        } else { 
+            document.getElementById('boss-hp-container').style.display = 'none'; 
+        }
+        
+        const disableButtons = isWaiting || isPaused;
+        document.getElementById('use-bomb-btn').disabled = appData.inventory.bomb <= 0 || disableButtons; 
+        document.getElementById('use-shield-btn').disabled = appData.inventory.shield <= 0 || shieldActive || disableButtons; 
+        document.getElementById('use-time-btn').disabled = appData.inventory.hourglass <= 0 || disableButtons; 
+        document.getElementById('attack-btn').disabled = disableButtons;
+    }
+
+    /* Gegner können entweder ein schlichtes Emoji sein ('\U0001F43A') oder ein Objekt mit
+       fester Darstellung: { e:'\U0001F409', hue:120, scale:2 }.
+       - hue    = Farbdrehung in Grad (macht aus einem grünen Drachen einen blauen)
+       - filter = kompletter CSS-Filter; nötig bei grauen Emojis wie \U0001F5FF oder \U0001F47B,
+                  bei denen eine reine Farbdrehung nichts bewirkt (kein Farbanteil vorhanden)
+       - scale  = 0 klein, 1 mittel, 2 groß; ohne Angabe zufällig
+       So entstehen aus einem Emoji ganze Gegner-Familien, ohne neue Grafiken. */
+    function enemyGlyph(x) { return (x && typeof x === 'object') ? x.e : x; }
+    function enemyKey(x)   { return (x && typeof x === 'object') ? (x.e + '|' + (x.hue || '') + (x.filter || '') + (x.scale === undefined ? '' : x.scale)) : x; }
+    function enemyStyle(x) {
+        if (x && typeof x === 'object') {
+            if (x.filter) return x.filter;
+            if (x.hue !== undefined) return `hue-rotate(${x.hue}deg) saturate(${x.sat || 1.15})`;
+            return 'none';
+        }
+        // Schlichtes Emoji: wie bisher zufällig einfärben
+        return `hue-rotate(${Math.floor(Math.random() * 360)}deg)`;
+    }
+    function enemyScaleClass(x) {
+        const s = (x && typeof x === 'object' && x.scale !== undefined) ? x.scale : Math.floor(Math.random() * 3);
+        return 'enemy-scale-' + s;
+    }
+    // Wählt zufällig einen Gegner, aber nie denselben wie beim letzten Mal
+    function pickDifferentEnemy(arr, lastKey) {
+        if (!arr || arr.length === 0) return '';
+        if (arr.length === 1) return arr[0];
+        let pick;
+        do { pick = arr[Math.floor(Math.random() * arr.length)]; } while (enemyKey(pick) === lastKey);
+        return pick;
+    }
+
+    // Wählt zufällig aus einem Array, aber nie denselben Wert wie beim letzten Mal
+    function pickDifferent(arr, last) {
+        if (!arr || arr.length === 0) return '';
+        if (arr.length === 1) return arr[0];
+        let pick;
+        do { pick = arr[Math.floor(Math.random() * arr.length)]; } while (pick === last);
+        return pick;
+    }
+
+    function setupEnvironment(pickNewObject) {
+        const worldObj = worldsConfig[(currentWorld - 1) % worldsConfig.length];
+        
+        document.getElementById('game-screen').style.background = worldObj.sky;
+        document.getElementById('ground').style.backgroundColor = worldObj.ground;
+        document.getElementById('sky-decor').innerText = worldObj.skyObj; 
+        
+        // Feste Kulisse der Welt (Punkt 9: Hochhäuser in der Straße, damit der Gorilla
+        // nicht deplatziert wirkt). Das Muster wird so oft wiederholt, dass es die ganze
+        // Breite füllt - auch auf breiten Bildschirmen.
+        document.getElementById('backdrop').innerText = worldObj.backdrop 
+            ? worldObj.backdrop.repeat(6) 
+            : '';
+        
+        if (pickNewObject) {
+            // Nie zweimal hintereinander dasselbe Objekt; zusätzlich ein zweites,
+            // kleineres Objekt im Hintergrund für mehr Tiefe und Abwechslung
+            lastSceneryObject = pickDifferent(worldObj.objects, lastSceneryObject);
+            document.getElementById('scenery-object').innerText = lastSceneryObject;
+            
+            lastSceneryFarObject = pickDifferent(worldObj.objects.filter(o => o !== lastSceneryObject), lastSceneryFarObject);
+            document.getElementById('scenery-object-far').innerText = lastSceneryFarObject;
+        }
+        
+        const ninja = document.getElementById('ninja');
+        const ninjaEmoji = document.getElementById('ninja-emoji');
+        let currentSkin = skins[appData.equippedSkinIndex]; 
+        ninja.style.filter = 'none';
+        
+        // Welt-spezifische Dekoration am Spielcharakter (z.B. Stinkewolke im Kanal, Papagei beim Piraten)
+        let decorHtml = '';
+        if (worldObj.ninjaDecor === 'stink') decorHtml = '<span class="ninja-decor-stink">💨</span>';
+        else if (worldObj.ninjaDecor === 'parrot') decorHtml = '<span class="ninja-decor-parrot">🦜</span>';
+        
+        if (worldObj.mode === 'fly') { 
+            ninja.className = 'character flying-ninja'; 
+            ninjaEmoji.innerHTML = `<span class="wing wing-left">🪽</span>${currentSkin}<span class="wing wing-right">🪽</span>`; 
+        } else if (worldObj.mode === 'swim') { 
+            ninja.className = 'character swimming-ninja'; 
+            // Pro Skin individuell kalibrierte Position/Größe der Tauchermaske (unterschiedliche Kopfformen)
+            const diveMaskStyles = [
+                'top:-25%; transform:translateX(-50%) scale(0.55);', // 🥷 Classic
+                'top:-22%; transform:translateX(-50%) scale(0.5);',  // 👺 Dämon
+                'top:-18%; transform:translateX(-50%) scale(0.6);',  // 🐯 Tiger
+                'top:-20%; transform:translateX(-50%) scale(0.55);'  // 🐱 Neko
+            ];
+            const maskStyle = diveMaskStyles[appData.equippedSkinIndex] || diveMaskStyles[0];
+            ninjaEmoji.innerHTML = `<span class="dive-mask" style="${maskStyle}">🤿</span>${currentSkin}<span class="dive-bubbles">🫧</span>`; 
+        } else if (worldObj.mode === 'ufo') { 
+            // Weltall: Alle Charaktere fliegen dasselbe UFO. Der gewählte Charakter ist als
+            // kleines Bild in der UFO-Kuppel zu sehen - so sieht es bei jedem Skin gut aus.
+            ninja.className = 'character flying-ninja'; 
+            // Pro Skin leicht kalibrierte Position/Größe in der Kuppel (unterschiedliche Kopfformen)
+            const ufoPilotStyles = [
+                'top:-36%; transform:translateX(-50%) scale(0.42);', // 🥷 Classic
+                'top:-34%; transform:translateX(-50%) scale(0.40);', // 👺 Dämon
+                'top:-32%; transform:translateX(-50%) scale(0.44);', // 🐯 Tiger
+                'top:-33%; transform:translateX(-50%) scale(0.42);'  // 🐱 Neko
+            ];
+            const pilotStyle = ufoPilotStyles[appData.equippedSkinIndex] || ufoPilotStyles[0];
+            ninjaEmoji.innerHTML = `<span class="ufo-pilot" style="${pilotStyle}">${currentSkin}</span>🛸`; 
+        } else { 
+            ninja.className = 'character ninja-running'; 
+            ninjaEmoji.innerHTML = `${decorHtml}${currentSkin}`; 
+        }
+    }
+
+    function startWalking() {
+        document.getElementById('scenery').classList.add('walking');
+        document.getElementById('battle-indicator').style.display = 'none';
+    }
+
+    // FIX: Die Lauf-Animation läuft als Endlosschleife (~1,1s pro Durchlauf). Da die Laufphase
+    // ca. 3 Sekunden dauert, zog vorher DASSELBE Objekt 3-4 Mal hintereinander vorbei.
+    // Jetzt wird bei jeder Animations-Wiederholung ein neues, anderes Objekt eingesetzt -
+    // genau am Schleifenende, wo das Objekt unsichtbar ist (opacity 0), also ohne sichtbaren Sprung.
+    document.getElementById('scenery-object').addEventListener('animationiteration', (e) => {
+        if (e.animationName !== 'walkPastScenery') return;
+        const worldObj = worldsConfig[(currentWorld - 1) % worldsConfig.length];
+        lastSceneryObject = pickDifferent(worldObj.objects, lastSceneryObject);
+        e.target.innerText = lastSceneryObject;
+    });
+    document.getElementById('scenery-object-far').addEventListener('animationiteration', (e) => {
+        if (e.animationName !== 'walkPastSceneryFar') return;
+        const worldObj = worldsConfig[(currentWorld - 1) % worldsConfig.length];
+        lastSceneryFarObject = pickDifferent(worldObj.objects.filter(o => o !== lastSceneryObject), lastSceneryFarObject);
+        e.target.innerText = lastSceneryFarObject;
+    });
+
+    function stopWalking() {
+        document.getElementById('scenery').classList.remove('walking');
+        document.getElementById('battle-indicator').style.display = 'block';
+    }
+
+    function spawnEnemy() {
+        stopWalking();
+        hideSpeechBubbles(); // Kein alter Text mehr sichtbar, wenn der neue Gegner erscheint
+        
+        isWaiting = false; 
+        currentInputStr = ""; 
+        document.getElementById('touch-display-area').innerText = ""; 
+        document.getElementById('touch-display-area').className = "";
+        
+        const worldObj = worldsConfig[(currentWorld - 1) % worldsConfig.length];
+        const enemyWrapper = document.getElementById('enemy-wrapper');
+        const enemyObj = document.getElementById('enemy');
+        
+        enemyWrapper.className = 'character enemy-enter';
+        enemyObj.style.filter = 'none';
+        
+        if(currentEnemyCount === 10) { 
+            enemyObj.innerText = enemyGlyph(worldObj.boss); 
+            enemyWrapper.classList.add('boss-character');
+            enemyObj.className = 'enemy-scale-1';
+            // Manche Bosse brauchen eine feste Einfärbung (z. B. der Schwarze Ritter)
+            if (worldObj.bossFilter) enemyObj.style.filter = worldObj.bossFilter;
+            document.getElementById('boss-vignette').classList.add('active');
+            
+            if (bossHp === 0) { 
+                bossHp = worldObj.bossMaxHp; 
+                playRetroSound('boss'); 
+            }
+        } else { 
+            document.getElementById('boss-vignette').classList.remove('active');
+            // Kein separater Kampfstart-Sound mehr - der Tempowechsel der Musik übernimmt die Dramatik
+            const enemyEntry = pickDifferentEnemy(worldObj.enemies, lastEnemyEmoji);
+            lastEnemyEmoji = enemyKey(enemyEntry);
+            enemyObj.innerText = enemyGlyph(enemyEntry);
+            enemyObj.className = enemyScaleClass(enemyEntry);
+            enemyObj.style.filter = enemyStyle(enemyEntry);
+            bossHp = 0;
+        }
+        
+        saveGameProgress(); 
+        generateQuestion(); 
+        updateUI(); 
+        walkPhase = false;
+        
+        if (isPaused) {
+            // In der Laufphase pausiert: Der Gegner wartet, der Timer startet erst beim Fortsetzen
+        } else if (pauseRequested) { 
+            engagePause(); 
+        } else { 
+            startTimer(); 
+        }
+    }
+
+    // Wird nach einem Schild-Block genutzt: dieselbe Aufgabe nochmal stellen (mit vollem Timer),
+    // statt einen neuen Gegner zu erzeugen. So bleibt das Schild klar besser als die Bombe.
+    function retryCurrentQuestion() {
+        // FIX (Freeze-Bug): Der Spielzustand wird IMMER zuerst zurückgesetzt, bevor eine
+        // eventuell angeforderte Pause greift. Vorher blieb isWaiting=true hängen, wenn
+        // während des Schildbruchs eine Pause vorgemerkt war -> nach dem Fortsetzen waren
+        // alle Buttons dauerhaft gesperrt und der Timer lief nie wieder an (kompletter Freeze).
+        isWaiting = false; 
+        currentInputStr = ""; 
+        document.getElementById('touch-display-area').innerText = ""; 
+        document.getElementById('touch-display-area').className = ""; 
+        
+        // FIX: Die Aufgabe wieder anzeigen! Vorher stand hier noch der "Schild zerbrochen"-Text,
+        // sodass die erneut gestellte Aufgabe nicht sichtbar war.
+        document.getElementById('question').innerText = currentQuestionText; 
+        
+        const enemyWrapper = document.getElementById('enemy-wrapper');
+        enemyWrapper.className = enemyWrapper.className.includes('boss-character') ? 'character boss-character' : 'character';
+        
+        timeLeft = maxTime; 
+        updateUI(); 
+        
+        if (pauseRequested) { 
+            engagePause(); 
+            return; 
+        }
+        
+        startTimer(); 
+    }
+
+    /* =========================================
+       AUFGABEN-GENERATOR (nach Kerncurriculum-Matrix)
+       Stufe 1/2: Welt 1-7  = Klasse-1-Niveau (ZR 10 -> ZR 20)
+                  Welt 8-15 = Klasse-2-Niveau (ZR 100 + Einmaleins)
+       Stufe 3/4: Welt 1-7  = Klasse-3-Niveau (ZR 1000, halbschriftlich)
+                  Welt 8-15 = Klasse-4-Niveau (großer Zahlenraum)
+       Wächter-Modus: immer Klasse-4-Niveau (zufällige Rezepte der Welten 8-15)
+    ========================================= */
+
+    function rnd(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+    function pickOne(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+    function tPlus(a, b)  { return { text: `${a} + ${b} = ?`, answer: a + b }; }
+    function tMinus(a, b) { return { text: `${a} - ${b} = ?`, answer: a - b }; }
+    function tMul(a, b)   { return { text: `${a} × ${b} = ?`, answer: a * b }; }
+    function tDiv(a, b)   { return { text: `${a} : ${b} = ?`, answer: a / b }; }
+    function tFill(a, target) { return { text: `${a} + ▢ = ${target}`, answer: target - a }; }
+    function tHalf(n)   { return { text: T[currentLang].halfQuestion(n), answer: n / 2 }; }
+    function tDouble(n) { return { text: T[currentLang].doubleQuestion(n), answer: n * 2 }; }
+    // NEU (Screenshot-Vorlagen): Punkt-vor-Strich OHNE Klammern - die Kinder müssen die
+    // Rechenreihenfolge selbst anwenden. Fünf Formen: 5 x 8 + 7 / 5 x 8 - 7 / 9 + 6 x 4 /
+    // 7 + 9 : 3 / 8 : 2 + 3. Nur Klasse 3/4 (in Klasse 1/2 sieht das Kerncurriculum das
+    // noch nicht vor).
+    function mixedOpTask(hard) {
+        const a = rnd(2, 9), b = rnd(2, 9);
+        const c = hard ? rnd(11, 99) : rnd(2, 19);
+        const d = rnd(2, 9), q = rnd(2, 9);          // für die Divisionsformen: (d*q) : d
+        switch (rnd(0, 4)) {
+            case 0: return { text: `${a} \u00d7 ${b} + ${c} = ?`, answer: a * b + c };
+            case 1: { const p = a * b, s = rnd(2, Math.max(2, p - 1));
+                      return { text: `${a} \u00d7 ${b} - ${s} = ?`, answer: p - s }; }
+            case 2: return { text: `${c} + ${a} \u00d7 ${b} = ?`, answer: c + a * b };
+            case 3: return { text: `${c} + ${d * q} : ${d} = ?`, answer: c + q };
+            default: return { text: `${d * q} : ${d} + ${c} = ?`, answer: q + c };
+        }
+    }
+
+    // NEU (Screenshot-Vorlagen): umgekehrte Gleichung mit fehlendem Faktor, z. B. 20 = \u25a2 x 5
+    function tFactorGap(factor, other) {
+        return { text: `${factor * other} = \u25a2 \u00d7 ${other}`, answer: factor };
+    }
+
+    function tChain(a, b, c, minus) {
+        if (minus) return { text: `(${a} × ${b}) - ${c} = ?`, answer: a * b - c };
+        return { text: `(${a} × ${b}) + ${c} = ?`, answer: a * b + c };
+    }
+
+    // NEU (Tester-Punkt 11): Rundungsaufgaben, z. B. "Runde 347 auf Zehner ≈ ?"
+    // unit: 10 (Zehner), 100 (Hunderter) oder 1000 (Tausender). Zahlen, die bereits
+    // "glatt" sind, werden ausgeschlossen - sonst gäbe es nichts zu runden.
+    function roundTask(unit) {
+        let n;
+        if (unit === 10)       { do { n = rnd(12, 989); }    while (n % 10 === 0); }
+        else if (unit === 100) { do { n = rnd(120, 979); }   while (n % 100 === 0); }
+        else                   { do { n = rnd(1200, 9799); } while (n % 1000 === 0); }
+        const label = (unit === 10) ? T[currentLang].unitTen : (unit === 100) ? T[currentLang].unitHundred : T[currentLang].unitThousand;
+        return { text: T[currentLang].roundQuestion(n, label), answer: Math.round(n / unit) * unit };
+    }
+
+    // NEU (Tester-Punkt 11): Umrechnungsaufgaben für den Wächter-Modus (Endlosschleife).
+    // Die Einheiten-Kürzel (min, s, km, m, cm, h) funktionieren in beiden Sprachen.
+    function convTask() {
+        const v = rnd(0, 6);
+        if (v === 0) { const n = rnd(2, 9); return { text: `${n} min = ? s`, answer: n * 60 }; }
+        if (v === 1) { const n = rnd(2, 9); return { text: `${n * 60} s = ? min`, answer: n }; }
+        if (v === 2) { const n = rnd(2, 9); return { text: `${n} km = ? m`, answer: n * 1000 }; }
+        if (v === 3) { const n = rnd(2, 9); return { text: `${n * 1000} m = ? km`, answer: n }; }
+        if (v === 4) { const n = rnd(2, 9); return { text: `${n} h = ? min`, answer: n * 60 }; }
+        if (v === 5) { const n = rnd(2, 9); return { text: `${n} m = ? cm`, answer: n * 100 }; }
+        const n = rnd(2, 9); return { text: `${n * 100} cm = ? m`, answer: n };
+    }
+
+    // Plus im ZR 100 MIT Zehnerübergang (z. B. 47 + 28)
+    function plusCarry100() {
+        let a, b;
+        do { a = rnd(15, 84); b = rnd(6, 99 - a); } while ((a % 10) + (b % 10) <= 9);
+        return tPlus(a, b);
+    }
+    // Minus im ZR 100 MIT Zehnerübergang (z. B. 62 - 35)
+    function minusBorrow100() {
+        let a, b;
+        do { a = rnd(32, 99); b = rnd(13, a - 3); } while ((a % 10) >= (b % 10));
+        return tMinus(a, b);
+    }
+
+    /* ---------- Stufe 1/2 ---------- */
+    function makeTask12(world, isBoss) {
+        switch (world) {
+            case 1: { // ZR 10: Plus/Minus - Boss: Plus mit Ergebnis 10 (Kastenaufgaben erst ab Welt 3!)
+                if (isBoss) { const a = rnd(1, 9); return tPlus(a, 10 - a); }
+                if (rnd(0, 1) === 0) { const a = rnd(1, 8); return tPlus(a, rnd(1, 9 - a)); }
+                const a = rnd(3, 10); return tMinus(a, rnd(1, a - 1));
+            }
+            case 2: { // ZR 10 vertiefen: Plus/Minus gemischt (noch OHNE Kastenaufgaben)
+                if (rnd(0, 1) === 0) { const a = rnd(1, 8); return tPlus(a, rnd(1, 9 - a)); }
+                const a = rnd(3, 10); return tMinus(a, rnd(1, a - 1));
+            }
+            case 3: { // ZR 20 OHNE Zehnerübergang + erste Kastenaufgaben (Ergänzen zur 10)
+                const v = rnd(0, 2);
+                if (v === 0) { const x = rnd(1, 8); return tPlus(10 + x, rnd(1, 9 - x)); }
+                if (v === 1) { const x = rnd(2, 9); return tMinus(10 + x, rnd(1, x)); }
+                return tFill(rnd(1, 9), 10);
+            }
+            case 4: { // Zehnerübergang Plus (z. B. 8 + 7)
+                const a = rnd(5, 9); return tPlus(a, rnd(11 - a, 9));
+            }
+            case 5: { // Zehnerübergang Minus (z. B. 15 - 8)
+                const a = rnd(11, 18); return tMinus(a, rnd(a - 9, 9));
+            }
+            case 6: { // Verdoppeln & Halbieren
+                const v = rnd(0, 2);
+                if (v === 0) return tDouble(rnd(2, 10));
+                if (v === 1) return tHalf(2 * rnd(2, 10));
+                const a = rnd(2, 9); return tPlus(a, a);
+            }
+            case 7: { // Zwischen-Finale Klasse 1: Mix - Boss: Ergänzen zur 20
+                if (isBoss) return tFill(rnd(11, 19), 20);
+                return makeTask12(rnd(1, 6), false);
+            }
+            case 8: { // ZR 100: glatte Zehner & Addition ohne Übergang
+                const v = rnd(0, 2);
+                if (v === 0) { const a = rnd(1, 5); return tPlus(a * 10, rnd(1, 9 - a) * 10); }
+                if (v === 1) { const a = rnd(3, 9); return tMinus(a * 10, rnd(1, a - 1) * 10); }
+                const ta = rnd(1, 7), oa = rnd(1, 8);
+                return tPlus(ta * 10 + oa, rnd(1, 8 - ta) * 10 + rnd(0, 9 - oa));
+            }
+            case 9: { // Einmaleins-Kernaufgaben - gemischt mit Plus im ZR 100 (mehr Abwechslung)
+                const v = rnd(0, 3);
+                if (v === 3) { const ta = rnd(1, 7), oa = rnd(1, 8); return tPlus(ta * 10 + oa, rnd(1, 8 - ta) * 10 + rnd(0, 9 - oa)); }
+                if (v === 0) { const n = rnd(2, 10); return tMul(n, n); }
+                const f = pickOne([1, 2, 5, 10]); const o = rnd(1, 10);
+                return rnd(0, 1) === 0 ? tMul(f, o) : tMul(o, f);
+            }
+            case 10: { // ZR 100 MIT Zehnerübergang
+                return rnd(0, 1) === 0 ? plusCarry100() : minusBorrow100();
+            }
+            case 11: { // volles Einmaleins - gemischt mit Plus/Minus im ZR 100
+                const v = rnd(0, 3);
+                if (v === 2) return rnd(0, 1) === 0 ? plusCarry100() : minusBorrow100();
+                // NEU: umgekehrte Gleichung mit fehlendem Faktor (20 = [] x 5)
+                if (v === 3) return tFactorGap(rnd(2, 9), pickOne([2, 3, 4, 5, 6, 10]));
+                return tMul(pickOne([3, 4, 6, 7, 8, 9]), rnd(2, 9));
+            }
+            case 12: { // Division als Umkehraufgabe (ohne Rest) - gemischt mit Einmaleins & Minus
+                const v = rnd(0, 4);
+                if (v === 2) return tMul(pickOne([3, 4, 6, 7, 8, 9]), rnd(2, 9));
+                if (v === 3) return minusBorrow100();
+                if (v === 4) return tFactorGap(rnd(2, 10), rnd(2, 9));
+                const b = rnd(2, 10); return tDiv(b * rnd(2, 10), b);
+            }
+            case 13: { // Ergänzen zum Hunderter, Hälfte/Doppeltes im ZR 100
+                const v = rnd(0, 2);
+                if (v === 0) return tFill(rnd(21, 89), 100);
+                if (v === 1) return tHalf(2 * rnd(11, 49));
+                return tDouble(rnd(11, 49));
+            }
+            case 14: { // Mix Klasse 2 - Boss: schweres Einmaleins (KEIN Punkt-vor-Strich in Kl. 1/2)
+                if (isBoss) return tMul(rnd(6, 9), rnd(6, 9));
+                return makeTask12(rnd(8, 13), false);
+            }
+            default: { // Welt 15 - Finale: schwerer Mix - Boss: Ergänzen zum Hunderter
+                if (isBoss) return tFill(rnd(21, 89), 100);
+                return makeTask12(rnd(10, 14), false);
+            }
+        }
+    }
+
+    /* ---------- Stufe 3/4 ---------- */
+    function makeTask34(world, isBoss) {
+        switch (world) {
+            case 1: { // Warm-up: ZR 100 flüssig + Einmaleins
+                const v = rnd(0, 2);
+                if (v === 0) return plusCarry100();
+                if (v === 1) return minusBorrow100();
+                return tMul(rnd(3, 9), rnd(3, 9));
+            }
+            case 2: { // Orientierung ZR 1000: glatte Hunderter und Zehner
+                const v = rnd(0, 2);
+                if (v === 0) { const a = rnd(1, 8); return tPlus(a * 100, rnd(1, 9 - a) * 100); }
+                if (v === 1) { const a = rnd(12, 89); return tPlus(a * 10, rnd(1, Math.min(9, 99 - a)) * 10); }
+                const a = rnd(4, 9); return tMinus(a * 100, rnd(1, a - 1) * 100);
+            }
+            case 3: { // halbschriftlich Plus im ZR 1000
+                const a = rnd(110, 780); return tPlus(a, rnd(110, 990 - a));
+            }
+            case 4: { // halbschriftlich Minus im ZR 1000
+                const a = rnd(310, 990); return tMinus(a, rnd(110, a - 110));
+            }
+            case 5: { // NEU: Runden auf Zehner/Hunderter + halbschriftliches Rechnen im ZR 1000
+                const v = rnd(0, 3);
+                if (v === 0) return roundTask(10);
+                if (v === 1) return roundTask(100);
+                if (v === 2) { const a = rnd(110, 780); return tPlus(a, rnd(110, 990 - a)); }
+                const a = rnd(310, 990); return tMinus(a, rnd(110, a - 110));
+            }
+            case 6: { // Ab hier: Einmaleins mit Zehnern/Hundertern (8 × 80, 300 × 3) + Division (glatt)
+                const v = rnd(0, 3);
+                if (v === 0) { const a = rnd(2, 5) * 100; return tMul(a, rnd(2, Math.floor(1000 / a))); }
+                if (v === 1) { const z = rnd(2, 9) * 10; const f = rnd(2, 9); return rnd(0, 1) === 0 ? tMul(z, f) : tMul(f, z); }
+                if (v === 2) { const b = rnd(2, 9); return tDiv(b * rnd(2, 9) * 10, b); }
+                const a = rnd(310, 990); return tMinus(a, rnd(110, a - 110));
+            }
+            case 7: { // Zwischen-Finale Klasse 3: Mix - Boss: Kettenaufgabe mit Zehnern
+                if (isBoss) return tChain(rnd(2, 9) * 10, rnd(2, 9), rnd(11, 99), false);
+                return makeTask34(rnd(1, 6), false);
+            }
+            case 8: { // Orientierung im großen Zahlenraum: glatte Tausender
+                if (rnd(0, 1) === 0) { const a = rnd(2, 50); return tPlus(a * 1000, rnd(2, Math.min(49, 99 - a)) * 1000); }
+                const a = rnd(10, 99); return tMinus(a * 1000, rnd(2, a - 2) * 1000);
+            }
+            case 9: { // Runden auf Hunderter/Tausender + Hälfte/Doppeltes + Ergänzen zum Tausender
+                const v = rnd(0, 3);
+                if (v === 0) return roundTask(100);
+                if (v === 1) return roundTask(1000);
+                if (v === 2) return rnd(0, 1) === 0 ? tHalf(2 * rnd(60, 490)) : tDouble(rnd(60, 490));
+                return tFill(rnd(120, 980), 1000);
+            }
+            case 10: { // Ab Klasse 4: zweistellig × einstellig (83 × 7) + große Zahlen ± (24500 - 21800)
+                const v = rnd(0, 3);
+                if (v <= 1) return tMul(rnd(12, 99), rnd(2, 9));
+                if (v === 2) { const a = rnd(12, 95); return tPlus(a * 100, rnd(11, 990 - a) * 100); }
+                const a = rnd(30, 990); return tMinus(a * 100, rnd(11, a - 11) * 100);
+            }
+            case 11: { // Ab Welt 11: schwere Division (192 : 3) - gemischt mit Multiplikation
+                const v = rnd(0, 2);
+                if (v <= 1) { const b = rnd(2, 9); return tDiv(b * rnd(12, 99), b); }
+                return tMul(rnd(12, 99), rnd(2, 9));
+            }
+            case 12: { // mehrschrittige Aufgaben (a × b) ± c
+                const a = rnd(3, 12), b = rnd(3, 12);
+                if (rnd(0, 1) === 0 || a * b < 25) return tChain(a, b, rnd(11, 99), false);
+                return tChain(a, b, rnd(11, Math.min(99, a * b - 1)), true);
+            }
+            case 13: { // Ergänzen zum Tausender, Hälfte/Doppeltes
+                const v = rnd(0, 2);
+                if (v === 0) return tFill(rnd(120, 980), 1000);
+                if (v === 1) return tHalf(2 * rnd(60, 490));
+                return tDouble(rnd(60, 490));
+            }
+            case 14: { // Mix Klasse 4 + NEU: Punkt vor Strich ohne Klammern (Screenshot-Vorlage)
+                if (isBoss) return tMul(rnd(23, 89), rnd(3, 9));
+                const v = rnd(0, 3);
+                if (v === 0) return mixedOpTask(false);
+                if (v === 1) return tFactorGap(rnd(3, 12), rnd(3, 9));
+                return makeTask34(rnd(8, 13), false);
+            }
+            case 16: { // ENDKAMPF Fürst Null: härtester Klasse-4-Mix (10 Fragen in Folge)
+                if (rnd(0, 3) === 0) return mixedOpTask(true);
+                const v = rnd(0, 4);
+                const a = rnd(6, 12), b = rnd(6, 9);
+                if (v === 0) return tChain(a, b, rnd(11, a * b - 1), true);
+                if (v === 1) return tChain(a, b, rnd(11, 99), false);
+                if (v === 2) return tMul(rnd(23, 98), rnd(3, 9));
+                if (v === 3) { const d = rnd(3, 9); return tDiv(d * rnd(12, 99), d); }
+                const x = rnd(30, 990); return tMinus(x * 100, rnd(11, x - 11) * 100);
+            }
+            default: { // Welt 15 - Finale (mit Punkt vor Strich ohne Klammern)
+                if (isBoss) return tChain(rnd(11, 15), rnd(6, 9), rnd(21, 99), false);
+                const v = rnd(0, 3);
+                if (v === 0) return mixedOpTask(true);
+                if (v === 1) return tFactorGap(rnd(4, 12), rnd(4, 9));
+                return makeTask34(rnd(9, 14), false);
+            }
+        }
+    }
+
+    // Zeitlimit: fällt pro Welt sanft ab, setzt beim Klassenwechsel (Welt 8) neu an
+    function getQuestionTime(isBoss) {
+        let t;
+        // Endkampf gegen Fürst Null: fester, fairer Wert (10 schwere Aufgaben in Folge)
+        if (currentWorld === 16) return 14;
+        if (selectedGrade === "3-4" && appData.storyCompleted) {
+            t = 14; // Wächter-Modus
+        } else if (selectedGrade === "1-2") {
+            t = (currentWorld <= 7) ? 25 - (currentWorld - 1) * 5 / 6 : 20 - (currentWorld - 8) * 5 / 7;
+        } else {
+            t = (currentWorld <= 7) ? 20 - (currentWorld - 1) * 4 / 6 : 18 - (currentWorld - 8) * 5 / 7;
+        }
+        if (isBoss) t = t * 0.85;
+        return Math.max(8, Math.round(t));
+    }
+
+    function generateQuestion() {
+        const isBoss = (currentEnemyCount === 10);
+        const guardianMode = (selectedGrade === "3-4" && appData.storyCompleted);
+        bombReveal = false; // Die Bomben-Anzeige gilt immer nur für die gerade beantwortete Aufgabe
+
+        // FIX (Tester-Punkt 9): Aufgaben-Gedächtnis - dieselbe Aufgabe erscheint innerhalb
+        // einer Welt nicht doppelt. Bei Bedarf wird bis zu 25x neu gewürfelt.
+        // FIX: Das Gedächtnis fasste nur 14 Aufgaben - eine Welt kann aber deutlich mehr
+        // Fragen haben (9 Gegner + bis zu 5 Boss-Fragen + eine Zusatzfrage je Fehler).
+        // Dadurch fielen alte Aufgaben aus dem Gedächtnis und kamen zurueck. Messung:
+        // bei 25 Fragen in Welt 4/5/6 (Klasse 1/2) trat das in 99% der Durchläufe auf.
+        // Mit 40 gemerkten Aufgaben und 60 Versuchen sind es 0%.
+        let task, tries = 0;
+        do {
+            // NEU: Im Wächter-Modus zusätzlich Punkt vor Strich und fehlende Faktoren,
+            // damit die Endlosschleife abwechslungsreicher bleibt.
+            if (guardianMode && rnd(0, 5) === 0) {
+                task = mixedOpTask(true);
+            } else if (guardianMode && rnd(0, 6) === 0) {
+                task = tFactorGap(rnd(4, 12), rnd(4, 9));
+            } else if (guardianMode && rnd(0, 3) === 0) {
+                // NEU (Tester-Punkt 11): Im Wächter-Modus ~25% Umrechnungsaufgaben (min/s, km/m, ...)
+                task = convTask();
+            } else {
+                // Im Wächter-Modus (Endlosmodus) immer Klasse-4-Niveau, egal welche Welt gerade dran ist
+                const recipeWorld = guardianMode ? rnd(8, 15) : currentWorld;
+                task = (selectedGrade === "1-2") ? makeTask12(recipeWorld, isBoss) : makeTask34(recipeWorld, isBoss);
+            }
+            tries++;
+        } while (tries < TASK_MEMORY_TRIES && recentTaskTexts.includes(task.text));
+        
+        // Notbremse: Reicht der Aufgabenvorrat der Welt nicht aus (Welt 6 in Klasse 1/2
+        // hat z. B. nur 26 verschiedene Aufgaben), wird die ältere Hälfte des
+        // Gedächtnisses verworfen - so bleibt der Abstand zwischen Wiederholungen maximal.
+        if (tries >= TASK_MEMORY_TRIES && recentTaskTexts.length > 6) {
+            recentTaskTexts = recentTaskTexts.slice(Math.floor(recentTaskTexts.length / 2));
+        }
+        recentTaskTexts.push(task.text);
+        if (recentTaskTexts.length > TASK_MEMORY_SIZE) recentTaskTexts.shift();
+
+        currentAnswer = task.answer;
+        maxTime = getQuestionTime(isBoss);
+        timeLeft = maxTime;
+
+        const prefix = isBoss ? '👑 ' : '';
+        document.getElementById('question').innerText = prefix + task.text;
+        currentQuestionText = document.getElementById('question').innerText;
+        // Lösungstext für die Bomben-Anzeige vorbereiten (Tester-Punkt 5):
+        // Platzhalter (? bzw. ▢) durch die richtige Antwort ersetzen
+        currentSolutionText = task.text.includes('▢') 
+            ? task.text.replace('▢', task.answer) 
+            : task.text.replace('?', task.answer);
+    }
+
+    function startTimer() { 
+        clearInterval(timerInterval); 
+        // Während einer aktiven Aufgabe ist der Pause-Button ausgeblendet (Pause nur in der Laufphase)
+        document.getElementById('pause-btn').style.visibility = 'hidden';
+        const timerBar = document.getElementById('timer-bar'); 
+        timerBar.classList.remove('timer-warning', 'timer-critical', 'timer-critical-boss');
+        timerBar.style.backgroundColor = (currentEnemyCount === 10) ? '#ff4757' : '#4cd137'; 
+        
+        timerInterval = setInterval(() => { 
+            // Im Hintergrund friert der Timer ein - sonst verliert man Leben,
+            // während das Handy in der Tasche steckt
+            if (isWaiting || isPaused || appInBackground || document.hidden) return; 
+            
+            timeLeft -= 0.1; 
+            const ratio = timeLeft / maxTime;
+            timerBar.style.width = ratio * 100 + '%'; 
+            
+            timerBar.classList.remove('timer-warning', 'timer-critical', 'timer-critical-boss');
+            if (ratio <= 0.15) {
+                timerBar.classList.add('timer-critical');
+                if (currentEnemyCount === 10) timerBar.classList.add('timer-critical-boss');
+            } else if (ratio <= 0.35) {
+                timerBar.classList.add('timer-warning');
+            }
+            
+            if (timeLeft <= 0) { 
+                triggerHit(true); 
+            } 
+        }, 100); 
+    }
+
+    function showItemEffect(emoji, duration, callback) {
+        const el = document.getElementById('item-effect');
+        el.innerText = emoji;
+        el.classList.remove('item-pop');
+        void el.offsetWidth; // Reflow erzwingen, damit die Animation bei erneutem Einsatz neu startet
+        el.classList.add('item-pop');
+        
+        setTimeout(() => {
+            el.classList.remove('item-pop');
+            if (callback) callback();
+        }, duration);
+    }
+
+    function useBomb() { 
+        if(!isWaiting && !isPaused && appData.inventory.bomb > 0) { 
+            appData.inventory.bomb--; 
+            // Shop-Bomben gelten als zuerst verbraucht - erst danach die Glücksrad-Bomben
+            appData.wheelStash.bomb = Math.min(appData.wheelStash.bomb || 0, appData.inventory.bomb);
+            comboStreak = 0;   // Item-Einsatz unterbricht die Kombo-Serie (Tester-Punkt 7)
+            bombReveal = true; // Nach der Bombe die vollständige Lösung anzeigen (Tester-Punkt 5)
+            saveAllData(); 
+            playRetroSound('item');
+            isWaiting = true; 
+            updateUI(); 
+            
+            showItemEffect('💣', 500, () => {
+                isWaiting = false; 
+                currentInputStr = currentAnswer.toString(); 
+                document.getElementById('touch-display-area').innerText = currentInputStr; 
+                checkAnswer(); 
+            });
+        } 
+    }
+
+    function useShield() { 
+        if(!isWaiting && !isPaused && appData.inventory.shield > 0 && !shieldActive) { 
+            appData.inventory.shield--; 
+            appData.wheelStash.shield = Math.min(appData.wheelStash.shield || 0, appData.inventory.shield);
+            comboStreak = 0; // Item-Einsatz unterbricht die Kombo-Serie (Tester-Punkt 7)
+            saveAllData(); 
+            playRetroSound('item');
+            
+            showItemEffect('🛡️', 500, () => {
+                shieldActive = true; 
+                document.getElementById('shield-bubble').style.display = 'block'; 
+                updateUI(); 
+            });
+        } 
+    }
+
+    function useHourglass() { 
+        if(!isWaiting && !isPaused && appData.inventory.hourglass > 0) { 
+            appData.inventory.hourglass--; 
+            appData.wheelStash.hourglass = Math.min(appData.wheelStash.hourglass || 0, appData.inventory.hourglass);
+            comboStreak = 0; // Item-Einsatz unterbricht die Kombo-Serie (Tester-Punkt 7)
+            saveAllData(); 
+            playRetroSound('item'); 
+            timeLeft = maxTime; 
+            
+            showItemEffect('⏳', 500);
+            
+            const timerBar = document.getElementById('timer-bar');
+            timerBar.classList.remove('timer-warning', 'timer-critical');
+            timerBar.classList.add('timer-hourglass-flash');
+            setTimeout(() => timerBar.classList.remove('timer-hourglass-flash'), 500);
+            
+            updateUI(); 
+        } 
+    }
+
+    function checkAnswer() { 
+        if (isWaiting || isPaused) return; 
+        
+        const userAnswer = parseInt(currentInputStr); 
+        if (isNaN(userAnswer)) return; 
+        
+        clearInterval(timerInterval); 
+        isWaiting = true; 
+        updateUI(); 
+        
+        if (userAnswer === currentAnswer) {
+            handleVictory(); 
+        } else {
+            triggerHit(false); 
+        }
+    }
+
+    function handleVictory() {
+        const worldObj = worldsConfig[(currentWorld - 1) % worldsConfig.length];
+        const ninja = document.getElementById('ninja'); 
+        const enemyWrapper = document.getElementById('enemy-wrapper'); 
+        
+        playRetroSound('correct'); 
+        document.getElementById('touch-display-area').classList.add('correct-flash');
+        
+        let oldClass = ninja.className; 
+        ninja.className = 'character ninja-attacking';
+        
+        setTimeout(() => { 
+            document.getElementById('hit-effect').style.display = 'block'; 
+            document.getElementById('hit-effect').style.left = '40%'; 
+            document.getElementById('hit-effect').style.bottom = '70px'; 
+            
+            if(currentEnemyCount === 10) { 
+                bossHp--; 
+                updateUI(); 
+            } 
+        }, 150);
+        
+        setTimeout(() => {
+            document.getElementById('hit-effect').style.display = 'none';
+        }, 450);
+        
+        setTimeout(() => {
+            ninja.className = oldClass; 
+            
+            if (currentEnemyCount === 10 && bossHp > 0) {
+                // Nach einer Bombe die vollständige Lösung zeigen (Tester-Punkt 5) - mit etwas
+                // mehr Lesezeit, bevor die nächste Boss-Frage kommt
+                const usedBomb = bombReveal;
+                document.getElementById('question').innerText = usedBomb ? '💣 ' + currentSolutionText : T[currentLang].criticalHit;
+                spawnParticles(worldObj.particleType, 3);
+                showMonsterSpeech(worldObj.dialogue[currentLang].hit[Math.floor(Math.random() * worldObj.dialogue[currentLang].hit.length)]);
+                
+                setTimeout(() => { 
+                    isWaiting = false; 
+                    currentInputStr = ""; 
+                    document.getElementById('touch-display-area').innerText = ""; 
+                    document.getElementById('touch-display-area').classList.remove('correct-flash');
+                    generateQuestion(); 
+                    updateUI();
+                    
+                    if (pauseRequested) { 
+                        engagePause(); 
+                    } else { 
+                        startTimer(); 
+                    }
+                }, usedBomb ? 1800 : 1000);
+            } else {
+                enemyWrapper.className = enemyWrapper.className.includes('boss-character') ? 'character enemy-die boss-character' : 'character enemy-die';
+                
+                // Ab jetzt "läuft" die Welt weiter (Boden + Hintergrund-Objekt), bis der nächste Gegner erscheint
+                setupEnvironment(true); 
+                startWalking();
+                
+                // Laufphase: Jetzt (und nur jetzt) ist der Pause-Button sichtbar und sofort wirksam
+                walkPhase = true;
+                document.getElementById('pause-btn').style.visibility = 'visible';
+                
+                // KOMBO-SYSTEM (überarbeitet): Meilenstein bei genau 5 Richtigen in Folge
+                // (ohne Item-Einsatz), danach bei 12, 24, 36, ... - mit FESTEN Beträgen
+                // (5 bzw. 12 Münzen) statt Multiplikator. So explodiert die Belohnung nicht,
+                // wenn ein Meilenstein zufällig auf einen Boss fällt. Der 12er (statt 10er)
+                // vermeidet, dass der Meilenstein bei perfektem Spiel immer auf Welle 10 (Boss) liegt.
+                comboStreak++; 
+                let baseCoins = (currentEnemyCount === 10) ? 10 : 1;
+                let baseScore = (currentEnemyCount === 10) ? 100 : 10;
+                if (currentWorld === 16) { baseCoins = 50; baseScore = 500; } // Endkampf-Bonus (Punkt 8)
+                
+                let comboLabel = 0;
+                if (comboStreak === 5) comboLabel = 5;
+                else if (comboStreak >= 12 && comboStreak % 12 === 0) comboLabel = 12;
+                
+                let gainCoins, gainScore;
+                if (comboLabel > 0 && currentEnemyCount !== 10) {
+                    gainCoins = comboLabel;        // z. B. 5 Münzen statt 1
+                    gainScore = comboLabel * 10;   // z. B. 50 Sterne statt 10
+                } else {
+                    gainCoins = baseCoins + comboLabel;       // Boss: Kombo-Bonus obendrauf
+                    gainScore = baseScore + comboLabel * 10;
+                }
+                
+                coins += gainCoins; 
+                appData.totalCoins += gainCoins; 
+                score += gainScore;
+                
+                saveAllData(); 
+                updateUI();
+                if (comboLabel > 0) flashRewardDisplays(); // Münzen & Sterne oben aufblinken lassen
+                
+                spawnParticles(worldObj.particleType, 5);
+                if (currentEnemyCount === 10) {
+                    showMonsterSpeech(worldObj.dialogue[currentLang].bossDefeat);
+                } else if (currentEnemyCount % 2 === 1) {
+                    // Nur bei jedem zweiten Gegner ein Spruch - weniger Wiederholung, mehr Wirkung
+                    showMonsterSpeech(worldObj.dialogue[currentLang].win[Math.floor(Math.random() * worldObj.dialogue[currentLang].win.length)]);
+                }
+                if (comboLabel > 0 && currentEnemyCount !== 10) {
+                    showNinjaSpeech(T[currentLang].comboPhrases[Math.floor(Math.random() * T[currentLang].comboPhrases.length)]);
+                }
+                
+                // Anzeige-Priorität: Bomben-Lösung (Punkt 5) > Kombo-Meilenstein (Punkt 7) > "Richtig!"
+                if (bombReveal) {
+                    document.getElementById('question').innerText = '💣 ' + currentSolutionText;
+                } else if (comboLabel > 0) {
+                    document.getElementById('question').innerText = T[currentLang].comboMsg(comboLabel, gainCoins, gainScore);
+                } else {
+                    document.getElementById('question').innerText = T[currentLang].correctText();
+                }
+                
+                // FIX (Tester-Punkt 1): Die Laufphase dauert so lange, bis alle Sprechblasen
+                // ausgeblendet sind - erst dann erscheint der nächste Gegner bzw. das nächste Level.
+                const walkDelay = Math.max(3100, speechHideAt - Date.now() + 250);
+                setTimeout(() => { 
+                    if(currentEnemyCount === 10) {
+                        worldCompleted(); 
+                    } else { 
+                        currentEnemyCount++; 
+                        spawnEnemy(); 
+                    } 
+                }, walkDelay);
+            }
+        }, 600);
+    }
+
+    // Lässt Münz- und Sterne-Anzeige oben aufblinken (Kombo-Meilenstein, Tester-Punkt 7)
+    function flashRewardDisplays() {
+        ['coins-display', 'score-display'].forEach(id => {
+            const el = document.getElementById(id);
+            el.classList.remove('reward-blink');
+            void el.offsetWidth; // Reflow erzwingen, damit die Animation neu startet
+            el.classList.add('reward-blink');
+            setTimeout(() => el.classList.remove('reward-blink'), 2000);
+        });
+    }
+
+    function worldCompleted() { 
+        clearInterval(timerInterval); 
+        playRetroSound('worldclear'); 
+        stopWalking();
+        
+        // Eine eventuell noch vorgemerkte Pause verwerfen, damit die nächste Welt sauber startet
+        pauseRequested = false;
+        document.getElementById('pause-btn').classList.remove('pause-pending');
+        
+        // Endkampf gewonnen? (Muss VOR der Welt-15-Prüfung stehen, da 16 > 15)
+        if (currentWorld === 16 && selectedGrade === "3-4" && !appData.storyCompleted) { 
+            saveAllData(); 
+            showFinalVictory(); 
+            return; 
+        } 
+        
+        if (currentWorld >= 15 && selectedGrade === "1-2") { 
+            saveAllData(); 
+            saveGameProgress(); 
+            showGradePromotion(); 
+            return; 
+        } 
+        
+        // Welt 15 in Klasse 3/4 geschafft: Story-Slides zeigen, dann den ENDKAMPF
+        // gegen Fürst Null (10 Leben) starten - erst nach dessen Sieg folgt der Abspann (Punkt 8)
+        if (currentWorld >= 15 && selectedGrade === "3-4" && !appData.storyCompleted) { 
+            saveAllData(); 
+            saveGameProgress(); 
+            showCutscene(T[currentLang].finalIntroSlides, T[currentLang].finalBattleBtn, startFinalBossBattle, { growNinja: false });
+            return; 
+        } 
+        
+        let message; 
+        
+        if (selectedGrade === "3-4" && appData.storyCompleted) { 
+            // Wächter-Modus: Die nächste Welt wird zufällig gewählt (Endlos-Modus nach Abschluss der Story),
+            // aber nie dieselbe Welt zweimal hintereinander
+            let nextWorld;
+            do { nextWorld = Math.floor(Math.random() * 15) + 1; } while (nextWorld === currentWorld);
+            currentWorld = nextWorld; 
+            const nextWorldObj = worldsConfig[(currentWorld - 1) % worldsConfig.length];
+            const nextWorldName = T[currentLang].worldNames[nextWorldObj.name] || nextWorldObj.name;
+            message = T[currentLang].guardianModeMsg + "\n➡️ " + nextWorldName; 
+        } else { 
+            message = T[currentLang].worldCompletedMsg(currentWorld); 
+            currentWorld++; 
+        } 
+        
+        saveAllData(); 
+        currentEnemyCount = 1; 
+        bossHp = 0; 
+        saveGameProgress(); 
+        
+        document.getElementById('next-level-text').innerText = message; 
+        document.getElementById('next-level-overlay').style.display = 'flex'; 
+    }
+
+    function startNextWorldDirectly() { 
+        document.getElementById('next-level-overlay').style.display = 'none'; 
+        initGameplay(); 
+    }
+
+    /* =========================================
+       STORY-ZWISCHENSEQUENZEN (Intro, Klassenaufstieg, Finale)
+    ========================================= */
+    let cutsceneStep = 0;
+    let cutsceneSlides = [];
+    let cutsceneOnFinish = null;
+    let cutsceneGrowNinja = false;
+    let cutsceneFinalBtnText = '';
+
+    function showCutscene(slides, finalBtnText, onFinish, options) {
+        options = options || {};
+        cutsceneSlides = slides;
+        cutsceneStep = 0;
+        cutsceneOnFinish = onFinish;
+        cutsceneGrowNinja = !!options.growNinja;
+        cutsceneFinalBtnText = finalBtnText;
+        renderCutsceneSlide();
+        document.getElementById('promotion-overlay').style.display = 'flex';
+    }
+
+    function renderCutsceneSlide() {
+        const slide = cutsceneSlides[cutsceneStep];
+        const isLast = cutsceneStep === cutsceneSlides.length - 1;
+        
+        const emojiEl = document.getElementById('promotion-emoji');
+        emojiEl.innerText = slide.emoji || skins[appData.equippedSkinIndex];
+        emojiEl.style.fontSize = cutsceneGrowNinja ? (90 + cutsceneStep * 25) + 'px' : '90px';
+        
+        document.getElementById('promotion-title').innerText = slide.title;
+        document.getElementById('promotion-text').innerText = slide.text;
+        document.getElementById('promotion-next-btn').innerText = isLast ? cutsceneFinalBtnText : T[currentLang].nextBtn;
+    }
+
+    function nextCutsceneSlide() {
+        if (cutsceneStep < cutsceneSlides.length - 1) {
+            cutsceneStep++;
+            renderCutsceneSlide();
+        } else {
+            document.getElementById('promotion-overlay').style.display = 'none';
+            if (cutsceneOnFinish) cutsceneOnFinish();
+        }
+    }
+
+    function showGradePromotion() {
+        showCutscene(T[currentLang].promotionSlides, T[currentLang].promotionStartBtn, () => {
+            selectedGrade = "3-4"; 
+            document.getElementById('grade-select').value = "3-4"; 
+            currentWorld = 1; 
+            currentEnemyCount = 1; 
+            bossHp = 0; 
+            
+            saveAllData(); 
+            saveGameProgress(); 
+            initGameplay(); 
+        }, { growNinja: true });
+    }
+
+    // Startet den Endkampf gegen Fürst Null: direkt als Boss-Welle mit 10 Leben (Punkt 8)
+    function startFinalBossBattle() {
+        currentWorld = 16; 
+        currentEnemyCount = 10; 
+        bossHp = 0; // wird in spawnEnemy auf bossMaxHp (10) gesetzt
+        recentTaskTexts = [];
+        saveGameProgress(); 
+        initGameplay();
+    }
+
+    // Wird erst gezeigt, wenn Fürst Null sein letztes Leben verloren hat (Punkt 8)
+    function showFinalVictory() {
+        showCutscene(T[currentLang].finalVictorySlides, T[currentLang].guardianStartBtn, () => {
+            appData.storyCompleted = true; 
+            currentWorld = Math.floor(Math.random() * 15) + 1; 
+            currentEnemyCount = 1; 
+            bossHp = 0; 
+            
+            saveAllData(); 
+            saveGameProgress(); 
+            initGameplay(); 
+        }, { growNinja: false });
+    }
+
+    function triggerHit(isTimeOut) {
+        clearInterval(timerInterval); 
+        isWaiting = true; 
+        updateUI();
+        
+        const worldObj = worldsConfig[(currentWorld - 1) % worldsConfig.length];
+        const ninja = document.getElementById('ninja'); 
+        const enemyWrapper = document.getElementById('enemy-wrapper'); 
+        let oldClass = ninja.className;
+        
+        document.getElementById('game-container').classList.add('shake-effect'); 
+        setTimeout(() => document.getElementById('game-container').classList.remove('shake-effect'), 400);
+        
+        comboStreak = 0; 
+        document.getElementById('touch-display-area').classList.add('wrong-flash');
+
+        if (shieldActive) {
+            shieldActive = false; 
+            document.getElementById('shield-bubble').style.display = 'none';
+            document.getElementById('question').innerText = T[currentLang].shieldBroken; 
+            playRetroSound('shieldbreak');
+            
+            // Der Gegner greift sichtbar an - der Treffer wird aber vom Schild geblockt
+            enemyWrapper.className = enemyWrapper.className.includes('boss-character') ? 'character enemy-attack boss-character' : 'character enemy-attack';
+            
+            setTimeout(() => retryCurrentQuestion(), 1200);
+        } else {
+            document.getElementById('lives-display').classList.add('lives-hit'); 
+            setTimeout(() => document.getElementById('lives-display').classList.remove('lives-hit'), 1200);
+            
+            const feedbackText = isTimeOut ? T[currentLang].timeUp : T[currentLang].wrongAnswer;
+            document.getElementById('question').innerHTML = `<span style="color:#ff4757;">${feedbackText} (${currentAnswer})</span>`; 
+            playRetroSound('hit');
+            
+            // Max. 1,9s: Der nächste Gegner erscheint nach 2,2s - bis dahin muss der Spott weg sein (Punkt 1)
+            showMonsterSpeech(worldObj.dialogue[currentLang].lose[Math.floor(Math.random() * worldObj.dialogue[currentLang].lose.length)], 1900);
+            spawnParticles('sparks', 3);
+            
+            enemyWrapper.className = enemyWrapper.className.includes('boss-character') ? 'character enemy-attack boss-character' : 'character enemy-attack';
+            
+            setTimeout(() => { 
+                ninja.className = 'character ninja-hit'; 
+                lives -= 1; 
+                // Vibration nur bei tatsächlichem Lebensverlust (nicht beim Schild-Block)
+                if (navigator.vibrate) { try { navigator.vibrate(200); } catch(e) {} }
+                updateUI(); 
+            }, 250);
+            
+            setTimeout(() => { 
+                if (lives <= 0) {
+                    gameOver(); 
+                } else { 
+                    ninja.className = oldClass; 
+                    spawnEnemy(); 
+                } 
+            }, 2200); 
+        }
+    }
+
+    function gameOver() { 
+        clearInterval(timerInterval); 
+        walkPhase = false;
+        document.getElementById('pause-btn').style.visibility = 'visible';
+        pauseRequested = false;
+        document.getElementById('pause-btn').classList.remove('pause-pending');
+        localStorage.removeItem('mathwarrior_current_save'); 
+        
+        // Reset auf den Startzustand (1 Bombe) - aber noch nicht benutzte Glücksrad-Gewinne
+        // bleiben erhalten und werden ins neue Inventar übernommen!
+        const ws = appData.wheelStash || { bomb: 0, shield: 0, hourglass: 0, heart: 0, coins: 0 };
+        appData.inventory = { 
+            bomb: 1 + (ws.bomb || 0), 
+            shield: ws.shield || 0, 
+            hourglass: ws.hourglass || 0, 
+            heart: Math.min(ws.heart || 0, MAX_HEART_INVENTORY) 
+        };
+        saveAllData();
+        
+        document.getElementById('final-score').innerText = T[currentLang].finalScoreTemplate(score, coins); 
+        
+        const list = appData.highscores || [];
+        if (score > 0 && (list.length < 10 || score > list[list.length - 1].score)) {
+            document.getElementById('highscore-input-zone').style.display = 'block'; 
+        } else {
+            document.getElementById('highscore-input-zone').style.display = 'none'; 
+        }
+        
+        showScreen('game-over-screen'); 
+    }
+
+    function saveHighscore() { 
+        const name = document.getElementById('player-name').value.trim() || "Ninja"; 
+        if (!Array.isArray(appData.highscores)) appData.highscores = [];
+        // Die Klassenstufe wird mitgespeichert und als kleines Kürzel angezeigt - eine
+        // gemeinsame Liste, aber man sieht, womit gespielt wurde.
+        appData.highscores.push({ name: name, score: score, grade: selectedGrade }); 
+        appData.highscores.sort((a, b) => b.score - a.score); 
+        appData.highscores = appData.highscores.slice(0, 10); 
+        
+        saveAllData(); 
+        showScreen('highscore-screen'); 
+    }
+
+    function displayHighscores() { 
+        const list = document.getElementById('highscore-list'); 
+        list.innerHTML = ''; 
+        
+        (appData.highscores || []).forEach(e => { 
+            let li = document.createElement('li'); 
+            
+            let strong = document.createElement('strong');
+            strong.textContent = e.name;
+            li.appendChild(strong);
+            
+            // Klassenstufe als kleines Kürzel hinter dem Namen
+            if (e.grade) {
+                let badge = document.createElement('span');
+                badge.className = 'hs-grade';
+                badge.textContent = e.grade;
+                li.appendChild(badge);
+            }
+            
+            li.appendChild(document.createTextNode(T[currentLang].highscoreEntry(e.score)));
+            list.appendChild(li); 
+        }); 
+    }
+
+    function showRewardOverlay(title, text) { 
+        document.getElementById('reward-title').innerText = title; 
+        document.getElementById('reward-text').innerText = text; 
+        document.getElementById('reward-overlay').style.display = 'flex'; 
+    }
+
+    function closeRewardOverlay() { 
+        document.getElementById('reward-overlay').style.display = 'none'; 
+    }
+</script>
+</body>
+</html>
