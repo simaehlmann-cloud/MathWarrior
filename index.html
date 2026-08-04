@@ -187,6 +187,14 @@
            OVERLAYS, INFO & SHOP
         ========================================= */
         #pause-overlay, #wheel-overlay, #reward-overlay, #next-level-overlay, #about-overlay { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 50; flex-direction: column; align-items: center; justify-content: center; }
+
+        /* Eltern-Gate: Rechensperre vor dem externen Verweis auf die Elternseite.
+           Liegt bewusst UEBER allen anderen Overlays (z-index 60). */
+        #parent-gate-overlay { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.94); z-index: 60; flex-direction: column; align-items: center; justify-content: center; padding: 20px; box-sizing: border-box; }
+        #parent-gate-overlay .pg-box { background: #2f3542; border: 3px solid #57606f; border-radius: 12px; padding: 20px; max-width: 320px; width: 100%; text-align: center; color: #fff; box-sizing: border-box; }
+        #pg-task { font-size: 26px; font-weight: bold; color: #ffd32a; margin: 14px 0; letter-spacing: 1px; }
+        #pg-input { font-size: 22px; padding: 8px; width: 140px; text-align: center; border-radius: 8px; border: 2px solid #57606f; background: #222; color: #fff; }
+        #pg-error { color: #ff4757; font-size: 13px; min-height: 32px; margin-top: 8px; line-height: 1.35; }
         #promotion-overlay { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(to bottom, #1a0a2e, #4a0e6b); z-index: 50; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 20px; }
         #promotion-emoji { font-size: 90px; transition: font-size 0.4s ease; animation: bounce 1.5s infinite ease-in-out; }
         #promotion-title { color: #ffd32a; margin: 10px 0; text-shadow: 2px 2px 0 #000; }
@@ -321,7 +329,7 @@
                     Simon Mählmann<br>
                     Oderstraße 13, 28844 Weyhe<br>
                     <a href="mailto:smaehlmann.appdev@gmail.com" style="color:#ffd32a;">smaehlmann.appdev@gmail.com</a><br>
-                    <a href="https://simaehlmann-cloud.github.io/MathWarrior/datenschutz.html" target="_blank" rel="noopener" style="color:#ffd32a;">Impressum &amp; Datenschutzerklärung</a>
+                    <a href="https://simaehlmann-cloud.github.io/MathWarrior/impressum.html" target="_blank" rel="noopener" style="color:#ffd32a;">Impressum</a> &nbsp;·&nbsp; <a href="https://simaehlmann-cloud.github.io/MathWarrior/datenschutz.html" target="_blank" rel="noopener" style="color:#ffd32a;">Datenschutz</a>
                 </div>
             </div>
 
@@ -353,12 +361,31 @@
                     Simon Mählmann<br>
                     Oderstraße 13, 28844 Weyhe, Germany<br>
                     <a href="mailto:smaehlmann.appdev@gmail.com" style="color:#ffd32a;">smaehlmann.appdev@gmail.com</a><br>
-                    <a href="https://simaehlmann-cloud.github.io/MathWarrior/datenschutz.html" target="_blank" rel="noopener" style="color:#ffd32a;">Legal notice &amp; privacy policy</a>
+                    <a href="https://simaehlmann-cloud.github.io/MathWarrior/impressum.html" target="_blank" rel="noopener" style="color:#ffd32a;">Legal notice</a> &nbsp;·&nbsp; <a href="https://simaehlmann-cloud.github.io/MathWarrior/datenschutz.html" target="_blank" rel="noopener" style="color:#ffd32a;">Privacy policy</a>
                 </div>
             </div>
             
             <div style="text-align: center; margin-top: 15px;">
+                <button class="load-btn" style="background:#57606f; box-shadow:0 4px 0 #2f3542;" onclick="openParentGate()" data-i18n="parentAreaBtn">Für Eltern</button>
                 <button class="load-btn" onclick="document.getElementById('about-overlay').style.display='none'" data-i18n="backBtn">Zurück</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Eltern-Gate: schuetzt den externen Verweis auf die Elternseite.
+         Die Aufgabe (zweistellig mal zweistellig) ist fuer Klasse 1-4 nicht loesbar.
+         Google Play behandelt auch Hinweise auf eigene Apps als Werbung - dieser Bereich
+         darf Kindern deshalb nicht ohne Sperre offenstehen. -->
+    <div id="parent-gate-overlay">
+        <div class="pg-box">
+            <h2 id="pg-title" style="color:#ffd32a; margin-top:0; font-size:18px;">Für Eltern</h2>
+            <p id="pg-text" style="font-size:13px; line-height:1.4; color:#ddd;"></p>
+            <div id="pg-task"></div>
+            <input id="pg-input" type="number" inputmode="numeric" autocomplete="off">
+            <div id="pg-error"></div>
+            <div style="margin-top:8px;">
+                <button class="load-btn" onclick="checkParentGate()"><span id="pg-ok-label">Weiter</span></button>
+                <button class="load-btn" style="background:#57606f; box-shadow:0 4px 0 #2f3542;" onclick="closeParentGate()"><span id="pg-cancel-label">Abbrechen</span></button>
             </div>
         </div>
     </div>
@@ -556,6 +583,7 @@
             wheelSpinAgainTomorrow: "Morgen wieder!", backBtn: "Zurück", backToGameBtn: "Zurück zum Spiel ⚔️",
             yourCoinsLabel: "Deine Münzen:", outfitsLabel: "Outfits:", skin0Name: "🥷 Classic", skin1Name: "👺 Dämon",
             skin2Name: "🐯 Tiger", skin3Name: "🐱 Neko", buyItemsLabel: "Items kaufen:", itemBombName: "💣 Bombe",
+            parentAreaBtn: "Für Eltern",
             itemShieldName: "🛡️ Schild", itemHourglassName: "⏳ Sanduhr", itemHeartName: "❤️ Extraleben",
             priceBomb: "Preis: 🪙 5", priceShield: "Preis: 🪙 4", priceHourglass: "Preis: 🪙 3", priceHeart: "Preis: 🪙 100",
             top10Label: "Top 10 Platzierung!", namePlaceholder: "Dein Name", saveBtn: "Sichern", mainMenuBtn: "Hauptmenü",
@@ -622,6 +650,7 @@
             wheelSpinAgainTomorrow: "Come back tomorrow!", backBtn: "Back", backToGameBtn: "Back to Game ⚔️",
             yourCoinsLabel: "Your Coins:", outfitsLabel: "Outfits:", skin0Name: "🥷 Classic", skin1Name: "👺 Demon",
             skin2Name: "🐯 Tiger", skin3Name: "🐱 Neko", buyItemsLabel: "Buy Items:", itemBombName: "💣 Bomb",
+            parentAreaBtn: "For Parents",
             itemShieldName: "🛡️ Shield", itemHourglassName: "⏳ Hourglass", itemHeartName: "❤️ Extra Life",
             priceBomb: "Price: 🪙 5", priceShield: "Price: 🪙 4", priceHourglass: "Price: 🪙 3", priceHeart: "Price: 🪙 100",
             top10Label: "Top 10 Ranking!", namePlaceholder: "Your Name", saveBtn: "Save", mainMenuBtn: "Main Menu",
@@ -711,6 +740,54 @@
         if (document.getElementById('game-screen').classList.contains('active')) updateUI();
         if (document.getElementById('shop-screen').classList.contains('active')) updateShopUI();
         if (document.getElementById('highscore-screen').classList.contains('active')) displayHighscores();
+    }
+
+    /* =========================================
+       ELTERN-BEREICH (externer Verweis hinter Rechensperre)
+    ========================================= */
+    const PARENT_URL = 'https://simaehlmann-cloud.github.io/MathWarrior/eltern.html';
+    let pgAnswer = 0;
+
+    function openParentGate() {
+        // Zweistellig mal zweistellig: fuer Klasse 1-4 sicher nicht im Kopf loesbar
+        const a = 12 + Math.floor(Math.random() * 38);   // 12 bis 49
+        const b = 13 + Math.floor(Math.random() * 37);   // 13 bis 49
+        pgAnswer = a * b;
+
+        const en = (currentLang === 'en');
+        document.getElementById('pg-title').textContent = en ? 'For Parents' : 'Für Eltern';
+        document.getElementById('pg-text').textContent = en
+            ? 'This area is intended for adults. Please solve the task to continue. The link opens in your browser.'
+            : 'Dieser Bereich ist für Erwachsene gedacht. Bitte lösen Sie die Aufgabe, um fortzufahren. Der Verweis öffnet den Browser.';
+        document.getElementById('pg-ok-label').textContent = en ? 'Continue' : 'Weiter';
+        document.getElementById('pg-cancel-label').textContent = en ? 'Cancel' : 'Abbrechen';
+        document.getElementById('pg-task').textContent = a + ' × ' + b + ' = ?';
+
+        document.getElementById('pg-input').value = '';
+        document.getElementById('pg-error').textContent = '';
+        document.getElementById('parent-gate-overlay').style.display = 'flex';
+    }
+
+    function checkParentGate() {
+        const raw = document.getElementById('pg-input').value.trim();
+        const val = parseInt(raw, 10);
+        const en = (currentLang === 'en');
+        const err = document.getElementById('pg-error');
+
+        if (raw !== '' && Number.isFinite(val) && val === pgAnswer) {
+            closeParentGate();
+            // oeffnet den System-Browser (kein allowNavigation in capacitor.config.json)
+            try { window.open(PARENT_URL, '_blank'); } catch(e) {}
+            return;
+        }
+        err.textContent = en
+            ? 'Not correct. Please try again.'
+            : 'Leider falsch. Bitte erneut versuchen.';
+        document.getElementById('pg-input').value = '';
+    }
+
+    function closeParentGate() {
+        document.getElementById('parent-gate-overlay').style.display = 'none';
     }
 
     function openAboutOverlay() {
@@ -847,9 +924,20 @@
        DATEN-MANAGEMENT
     ========================================= */
     function loadAllData() { 
-        const stored = localStorage.getItem('mathwarrior_all_data'); 
+        // FIX (Absturzschutz): Ein beschaedigter Speicher (abgebrochener Schreibvorgang,
+        // voller Geraetespeicher, manuelle Manipulation) liess JSON.parse eine Ausnahme
+        // werfen. Da loadAllData() in window.onload laeuft, brach damit der GESAMTE Start
+        // ab - die App zeigte einen schwarzen Bildschirm und war nur durch Neuinstallation
+        // wieder nutzbar. Jetzt wird auf die Standardwerte zurueckgefallen.
+        let stored = null;
+        try { stored = localStorage.getItem('mathwarrior_all_data'); } catch(e) { stored = null; }
         if (stored) {
-            appData = JSON.parse(stored); 
+            try {
+                const parsed = JSON.parse(stored);
+                if (parsed && typeof parsed === 'object') appData = parsed;
+            } catch(e) {
+                try { localStorage.removeItem('mathwarrior_all_data'); } catch(e2) {}
+            }
             if (!appData.inventory) appData.inventory = { bomb: 1, shield: 0, hourglass: 0, heart: 0 };
             if (!appData.wheelStash) appData.wheelStash = { bomb: 0, shield: 0, hourglass: 0, heart: 0, coins: 0 };
             if (!appData.language) appData.language = "de";
@@ -871,10 +959,45 @@
         if (!appData.lastWheelDate) appData.lastWheelDate = ""; 
         if (appData.introSeen === undefined) appData.introSeen = false;
         if (appData.storyCompleted === undefined) appData.storyCompleted = false;
+
+        // FIX (Edge Cases): Ein gueltiges, aber unvollstaendiges oder verfaelschtes JSON
+        // (z. B. totalCoins als Text, fehlendes ownedSkins-Array) fuehrte spaeter zu
+        // Folgefehlern - "Muenzen: NaN" in der Anzeige oder ein Absturz beim Oeffnen des
+        // Shops (ownedSkins.includes ist dann keine Funktion). Alle Felder werden deshalb
+        // einmalig auf einen brauchbaren Typ gebracht.
+        const toNum = (v, fallback) => {
+            const n = Number(v);
+            return Number.isFinite(n) && n >= 0 ? Math.floor(n) : fallback;
+        };
+        appData.totalCoins = toNum(appData.totalCoins, 0);
+        if (!appData.inventory || typeof appData.inventory !== 'object') appData.inventory = { bomb: 1, shield: 0, hourglass: 0, heart: 0 };
+        if (!appData.wheelStash || typeof appData.wheelStash !== 'object') appData.wheelStash = { bomb: 0, shield: 0, hourglass: 0, heart: 0, coins: 0 };
+        ['bomb','shield','hourglass','heart'].forEach(k => { appData.inventory[k] = toNum(appData.inventory[k], 0); });
+        ['bomb','shield','hourglass','heart','coins'].forEach(k => { appData.wheelStash[k] = toNum(appData.wheelStash[k], 0); });
+        appData.inventory.heart = Math.min(appData.inventory.heart, MAX_HEART_INVENTORY);
+        if (!Array.isArray(appData.ownedSkins)) appData.ownedSkins = [0];
+        appData.ownedSkins = appData.ownedSkins.map(i => toNum(i, 0)).filter(i => i >= 0 && i < skins.length);
+        if (appData.ownedSkins.length === 0) appData.ownedSkins = [0];
+        appData.equippedSkinIndex = toNum(appData.equippedSkinIndex, 0);
+        if (!appData.ownedSkins.includes(appData.equippedSkinIndex)) appData.equippedSkinIndex = appData.ownedSkins[0];
+        if (!Array.isArray(appData.highscores)) appData.highscores = [{ name: "Meister", score: 30, grade: "1-2" }];
+        appData.highscores = appData.highscores
+            .filter(e => e && typeof e === 'object')
+            .map(e => ({ name: String(e.name || "Ninja").slice(0, 12), score: toNum(e.score, 0), grade: (e.grade === "3-4" ? "3-4" : "1-2") }))
+            .sort((a, b) => b.score - a.score)
+            .slice(0, 10);
+        if (appData.language !== 'en') appData.language = 'de';
     }
 
     function saveAllData() { 
-        localStorage.setItem('mathwarrior_all_data', JSON.stringify(appData)); 
+        // FIX (Absturzschutz): Ist der Geraetespeicher voll oder der private Modus aktiv,
+        // wirft setItem eine QuotaExceededError. Da saveAllData() mitten im Spiel laeuft
+        // (nach jedem Kauf, jedem Weltwechsel), riss diese Ausnahme den laufenden
+        // Spielablauf ab. Jetzt wird der Fehler abgefangen - das Spiel laeuft weiter,
+        // lediglich der Fortschritt dieser Sitzung geht verloren.
+        try {
+            localStorage.setItem('mathwarrior_all_data', JSON.stringify(appData)); 
+        } catch(e) {}
     }
 
     // HINWEIS (Edge-to-Edge): Ab Android 15 zeichnen Apps bis unter Status- und Navigationsleiste.
@@ -898,7 +1021,7 @@
             const s = JSON.parse(localStorage.getItem('mathwarrior_current_save')); 
             hasValidSave = !!(s && s.v === 2 && s.world <= 16); 
         } catch(e) {}
-        if (!hasValidSave) localStorage.removeItem('mathwarrior_current_save');
+        if (!hasValidSave) { try { localStorage.removeItem('mathwarrior_current_save'); } catch(e) {} }
         document.getElementById('resume-btn').style.display = hasValidSave ? 'block' : 'none'; 
     }
 
@@ -907,8 +1030,21 @@
     ========================================= */
     function initAudio() { 
         if (!audioCtx) { 
-            audioCtx = new (window.AudioContext || window.webkitAudioContext)(); 
-            startProceduralMusic(); 
+            // FIX (Absturzschutz): Auf Geraeten ohne Web-Audio-Unterstuetzung oder bei
+            // erschoepften Audio-Ressourcen warf der Konstruktor eine Ausnahme. initAudio()
+            // wird u. a. beim Spielstart und beim Oeffnen des Gluecksrads aufgerufen - die
+            // Ausnahme legte damit die jeweilige Aktion komplett lahm. Jetzt laeuft das
+            // Spiel notfalls stumm weiter.
+            try {
+                const Ctx = window.AudioContext || window.webkitAudioContext;
+                if (!Ctx) { isMuted = true; return; }
+                audioCtx = new Ctx(); 
+                startProceduralMusic(); 
+            } catch(e) { 
+                audioCtx = null; 
+                isMuted = true; 
+                return; 
+            }
         } 
         // FIX: Im Hintergrund (Home-Button, Bildschirm aus, App gewechselt) darf der Ton
         // NICHT wieder aufgeweckt werden. Vorher konnte ein noch laufender Timer im
@@ -1106,6 +1242,18 @@
     window.addEventListener('pageshow', resumeAudioForForeground);
     window.addEventListener('focus', resumeAudioForForeground);
 
+    // FIX (Soft-Lock): Manche Android-WebViews loesen nach einem 'blur' kein 'focus' und
+    // kein 'visibilitychange' mehr aus - etwa wenn die Benachrichtigungsleiste
+    // heruntergezogen und gleich wieder geschlossen wird. appInBackground blieb dann
+    // dauerhaft auf true: Der Zeitbalken stand still und es kam kein Ton mehr. Das Spiel
+    // wirkte eingefroren und war nur durch einen Neustart zu retten. Jede Beruehrung des
+    // Bildschirms hebt den Zustand jetzt wieder auf, sofern die Seite sichtbar ist.
+    ['touchstart', 'pointerdown', 'keydown'].forEach(evt => {
+        document.addEventListener(evt, () => {
+            if (appInBackground && !document.hidden) resumeAudioForForeground();
+        }, true);
+    });
+
     /* =========================================
        UI & SCREEN-STEUERUNG
     ========================================= */
@@ -1210,13 +1358,12 @@
         
         document.getElementById('spin-btn').disabled = true; 
         appData.lastWheelDate = today; 
-        saveAllData();
         
         playRetroSound('wheel'); 
         const wheel = document.getElementById('wheel-anim'); 
         wheel.style.transform = `rotate(${1800 + Math.floor(Math.random() * 360)}deg)`;
         
-        setTimeout(() => {
+        {
             const wp = T[currentLang].wheelPrizes;
             // Alle Gewinne werden zusätzlich im "wheelStash" vermerkt: Sie überleben dadurch
             // ein Game Over bzw. den Münzen-Reset beim neuen Spiel, bis sie benutzt wurden.
@@ -1236,13 +1383,20 @@
             }
             const finalPrize = prizes[Math.floor(Math.random() * prizes.length)];
             
+            // FIX: Der Gewinn wird jetzt SOFORT gutgeschrieben und gespeichert - vorher
+            // geschah das erst nach der 3,1 Sekunden langen Drehanimation. Wer die App
+            // waehrenddessen schloss (Home-Button, Anruf, Bildschirmsperre), hatte die
+            // Tagesdrehung verbraucht, aber nichts gewonnen. Nur die ANZEIGE des Gewinns
+            // wartet noch auf das Ende der Animation.
             finalPrize.action(); 
             saveAllData(); 
-            playRetroSound('correct'); 
-            closeWheel();
             
-            showRewardOverlay(T[currentLang].rewardWheelTitle, T[currentLang].rewardWheelBody(finalPrize.txt));
-        }, 3100);
+            setTimeout(() => {
+                playRetroSound('correct'); 
+                closeWheel();
+                showRewardOverlay(T[currentLang].rewardWheelTitle, T[currentLang].rewardWheelBody(finalPrize.txt));
+            }, 3100);
+        }
     }
 
     /* =========================================
@@ -1504,10 +1658,18 @@
 
     function resumeGame() { 
         initAudio(); 
-        const save = JSON.parse(localStorage.getItem('mathwarrior_current_save')); 
-        // Spielstände aus älteren Versionen (12-Welten-Struktur) passen nicht mehr und werden verworfen
-        if (!save || save.v !== 2 || save.world > 16) { 
-            localStorage.removeItem('mathwarrior_current_save'); 
+        // FIX (Absturzschutz): Auch hier konnte ein beschaedigter Spielstand eine
+        // Ausnahme werfen - der "Weiterspielen"-Knopf reagierte dann gar nicht mehr.
+        let save = null;
+        try { save = JSON.parse(localStorage.getItem('mathwarrior_current_save')); } catch(e) { save = null; }
+        // Spielstände aus älteren Versionen (12-Welten-Struktur) passen nicht mehr und werden verworfen.
+        // Zusaetzlich geprueft: Leben, Welt und Gegnerzaehler muessen plausible Zahlen sein.
+        const saveOk = save && save.v === 2
+            && Number.isFinite(save.lives) && save.lives > 0 && save.lives <= MAX_LIVES
+            && Number.isFinite(save.world) && save.world >= 1 && save.world <= 16
+            && Number.isFinite(save.enemyCount) && save.enemyCount >= 1 && save.enemyCount <= 10;
+        if (!saveOk) { 
+            try { localStorage.removeItem('mathwarrior_current_save'); } catch(e) {}
             checkSavedGameButton(); 
             return; 
         } 
@@ -1519,12 +1681,15 @@
         appData.inventory.heart = (appData.inventory.heart || 0) - Math.max(0, heartsToUse); 
         appData.wheelStash.heart = Math.min(appData.wheelStash.heart || 0, appData.inventory.heart); 
         saveAllData(); 
-        coins = save.coins; 
-        score = save.score; 
+        // FIX (Edge Cases): Zahlen aus dem Spielstand konnten als Text oder als NaN
+        // ankommen - Anzeige und Rechnungen wurden dann zu "NaN". Die Klassenstufe konnte
+        // einen unbekannten Wert enthalten und fiel damit stillschweigend auf Klasse 3/4.
+        coins = Number.isFinite(save.coins) ? save.coins : 0; 
+        score = Number.isFinite(save.score) ? save.score : 0; 
         currentEnemyCount = save.enemyCount; 
-        selectedGrade = save.grade; 
+        selectedGrade = (save.grade === "3-4") ? "3-4" : "1-2"; 
         currentWorld = save.world || 1; 
-        bossHp = save.bossHp || 0; 
+        bossHp = Number.isFinite(save.bossHp) ? save.bossHp : 0; 
         
         // FIX: Schild und Kombo-Serie aus dem Spielstand wiederherstellen (vorher hart auf
         // 0 bzw. false gesetzt - das aktive Schild war nach dem Weiterspielen verschwunden).
@@ -1548,11 +1713,15 @@
         // weiterspielte - das gekaufte Schild war schlicht weg.
         // Auch das Aufgaben-Gedächtnis wird mitgenommen, damit sich Aufgaben nach dem
         // Weiterspielen nicht sofort wiederholen.
-        localStorage.setItem('mathwarrior_current_save', JSON.stringify({ 
-            v: 2, lives, coins, score, enemyCount: currentEnemyCount, grade: selectedGrade, 
-            world: currentWorld, bossHp, shield: shieldActive, combo: comboStreak, 
-            taskMemory: recentTaskTexts 
-        })); 
+        // FIX (Absturzschutz): siehe saveAllData - voller Speicher darf das laufende
+        // Spiel nicht abbrechen.
+        try {
+            localStorage.setItem('mathwarrior_current_save', JSON.stringify({ 
+                v: 2, lives, coins, score, enemyCount: currentEnemyCount, grade: selectedGrade, 
+                world: currentWorld, bossHp, shield: shieldActive, combo: comboStreak, 
+                taskMemory: recentTaskTexts 
+            })); 
+        } catch(e) {}
     }
 
     function initGameplay() { 

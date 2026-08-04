@@ -1,0 +1,67 @@
+/* Gemeinsames Stylesheet für Impressum, Datenschutz und Elternseite
+   MathWarrior · Wisdompeak Apps */
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, Helvetica, sans-serif;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 30px 20px 60px;
+  line-height: 1.65;
+  color: #222;
+  background: #fff;
+}
+
+.nav { font-size: 0.9em; color: #666; margin-bottom: 30px; }
+.nav a { color: #1e5aa8; text-decoration: none; }
+.nav a:hover { text-decoration: underline; }
+
+h1 { color: #111; font-size: 1.8em; margin-bottom: 4px; }
+h2 { color: #222; font-size: 1.2em; margin-top: 34px; border-bottom: 1px solid #e2e2e2; padding-bottom: 6px; }
+h3 { color: #333; font-size: 1.05em; margin-top: 22px; margin-bottom: 4px; }
+
+p.sub { color: #666; font-size: 0.92em; margin-top: 0; }
+p.hint { color: #666; font-size: 0.88em; background: #fafafa; border-left: 3px solid #ddd; padding: 8px 14px; }
+
+a { color: #1e5aa8; }
+
+.box {
+  background: #f2f6fb;
+  border-left: 4px solid #1e5aa8;
+  padding: 14px 18px;
+  margin: 22px 0;
+  font-size: 0.96em;
+}
+
+.warn {
+  background: #fdf6e8;
+  border-left: 4px solid #c98a00;
+  padding: 14px 18px;
+  margin: 22px 0;
+  font-size: 0.96em;
+}
+
+table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 0.92em; }
+th, td { border: 1px solid #ddd; padding: 8px 10px; text-align: left; vertical-align: top; }
+th { background: #f5f5f5; }
+table.kv th { width: 130px; }
+
+code { background: #f2f2f2; padding: 1px 5px; border-radius: 3px; font-size: 0.9em; }
+
+/* Elternseite */
+.app-card { border: 1px solid #ddd; border-radius: 8px; padding: 16px 18px; margin: 18px 0; }
+.app-card h3 { margin-top: 0; }
+.app-card p { margin: 6px 0; }
+
+.status { display: inline-block; font-size: 0.72em; padding: 3px 10px; border-radius: 10px;
+          color: #fff; vertical-align: middle; font-weight: normal; letter-spacing: 0.3px; }
+.status.live { background: #2d8a3e; }
+.status.dev  { background: #a06a00; }
+
+.btn { display: block; text-align: center; text-decoration: none; background: #2f3542; color: #fff;
+       padding: 15px 20px; border-radius: 8px; margin: 14px 0; font-weight: bold; }
+.btn:hover { background: #57606f; color: #fff; }
+
+hr { border: none; border-top: 1px solid #ddd; margin: 45px 0; }
+
+footer { margin-top: 45px; padding-top: 16px; border-top: 1px solid #ddd; font-size: 0.9em; color: #666; }
+footer a { color: #1e5aa8; }
