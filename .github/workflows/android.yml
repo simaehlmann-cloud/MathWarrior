@@ -1,110 +1,205 @@
-name: Build Android APK
+# =============================================================================
+#  MathWarrior - Android-Build (Debug-APK zum Testen + signiertes AAB fuer Play)
+# =============================================================================
+#  Was hier passiert, in Kurzform:
+#   1. Web-Dateien nach www/ kopieren
+#   2. Capacitor in FESTEN Versionen installieren (package.json)
+#   3. Android-Projekt erzeugen und auf API 36 (Android 16) heben
+#   4. App-Icon einbauen (adaptiv + klassisch, alle Bildschirmdichten)
+#   5. Debug-APK bauen (zum Sideloaden auf dein Handy)
+#   6. Signiertes AAB bauen - nur wenn die Keystore-Secrets hinterlegt sind
+# =============================================================================
+
+name: MathWarrior Android Build
 
 on:
   push:
     branches: [ main ]
-  workflow_dispatch: 
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
+    env:
+      # Erst wenn KEYSTORE_BASE64 als Secret hinterlegt ist, laufen die Signier-Schritte.
+      HAS_KEYSTORE: ${{ secrets.KEYSTORE_BASE64 != '' }}
+      # Vorderer Teil der Versionsnummer. Bei groesseren Updates hier hochzaehlen (1.1, 1.2, ...).
+      VERSION_BASE: '1.0'
+
     steps:
-    - name: Checkout Code
-      uses: actions/checkout@v4
+      - name: Code auschecken
+        uses: actions/checkout@v4
 
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20'
+      # Capacitor 8 setzt Node 22 voraus - mit Node 20 laeuft der Build nicht zuverlaessig.
+      - name: Node.js 22 einrichten
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
 
-    - name: Setup Java
-      uses: actions/setup-java@v4
-      with:
-        distribution: 'temurin'
-        java-version: '21'
+      - name: Java 21 einrichten
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
 
-    - name: Prepare Folder Structure
-      run: |
-        # Erstelle www Ordner und verschiebe alle Web-Dateien dorthin
-        mkdir -p www
-        cp index.html manifest.json image.png www/ 2>/dev/null || :
-        
-        # Erstelle package.json für Capacitor
-        echo '{"name": "mathwarrior", "version": "1.0.0", "dependencies": {}}' > package.json
+      # ImageMagick ist auf den Runnern NICHT vorinstalliert und wird fuer die Icons gebraucht.
+      - name: ImageMagick installieren
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq imagemagick
 
-    - name: Install & Configure Capacitor
-      run: |
-        npm install @capacitor/core @capacitor/cli @capacitor/android
-        npx cap init MathWarrior com.simon.mathwarrior --web-dir www
-        npx cap add android
+      - name: Web-Dateien nach www kopieren
+        run: |
+          set -e
+          mkdir -p www
+          cp index.html manifest.json www/
+          cp icon-192.png icon-512.png icon-maskable-512.png www/
+          [ -f datenschutz.html ] && cp datenschutz.html www/ || true
+          echo "--- Inhalt von www ---"
+          ls -la www
 
-    - name: Generate App Icon from image.png
-      run: |
-        mkdir -p resources
-        cp image.png resources/icon.png
-        npm install @capacitor/assets --save-dev
-        npx capacitor-assets generate --android
-        npx cap sync android
+      # Feste Versionen aus package.json - so kann ein neues Capacitor-Release
+      # den Build nicht mehr ueber Nacht kaputtmachen.
+      - name: Capacitor installieren
+        run: npm install
 
-    - name: Fix duplicate Kotlin stdlib classes
-      run: |
-        cat >> android/app/build.gradle << 'EOF'
+      # Kein "cap init" mehr: capacitor.config.json liegt im Repository und wird verwendet.
+      - name: Android-Projekt erzeugen
+        run: npx cap add android
 
-        configurations.all {
-            exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk7'
-            exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk8'
-        }
-        EOF
+      - name: Target-SDK auf Android 16 (API 36) setzen
+        run: |
+          set -e
+          sed -i 's/compileSdkVersion = .*/compileSdkVersion = 36/' android/variables.gradle
+          sed -i 's/targetSdkVersion = .*/targetSdkVersion = 36/'  android/variables.gradle
+          echo "--- android/variables.gradle ---"
+          cat android/variables.gradle
 
-    - name: Build Debug APK
-      run: |
-        cd android
-        chmod +x gradlew
-        ./gradlew clean assembleDebug
+      - name: App-Icon einbinden
+        run: |
+          set -e
+          IM="$(command -v magick || command -v convert)"
+          RES=android/app/src/main/res
 
-    - name: Upload Debug APK
-      uses: actions/upload-artifact@v4
-      with:
-        name: MathWarrior-APK
-        path: android/app/build/outputs/apk/debug/app-debug.apk
+          # --- Adaptives Icon (Android 8 und neuer): zwei Ebenen, je 108 dp ---
+          for D in mdpi:108 hdpi:162 xhdpi:216 xxhdpi:324 xxxhdpi:432; do
+            DPI="${D%%:*}"; PX="${D##*:}"
+            mkdir -p "$RES/mipmap-$DPI"
+            "$IM" icon-foreground.png -resize "${PX}x${PX}" "$RES/mipmap-$DPI/ic_launcher_foreground.png"
+            "$IM" icon-background.png -resize "${PX}x${PX}" "$RES/mipmap-$DPI/ic_launcher_background.png"
+          done
 
-    - name: Decode Keystore
-      run: |
-        echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/app/release.keystore
+          # --- Klassisches Icon (Android 7 und aelter): quadratisch + rund, je 48 dp ---
+          for D in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
+            DPI="${D%%:*}"; PX="${D##*:}"; C=$((PX/2))
+            mkdir -p "$RES/mipmap-$DPI"
+            "$IM" icon-512.png -resize "${PX}x${PX}" "$RES/mipmap-$DPI/ic_launcher.png"
+            "$IM" -size "${PX}x${PX}" xc:black -fill white \
+                  -draw "circle $C,$C $C,0" -alpha off /tmp/mask_$PX.png
+            "$IM" "$RES/mipmap-$DPI/ic_launcher.png" /tmp/mask_$PX.png \
+                  -compose CopyOpacity -composite "$RES/mipmap-$DPI/ic_launcher_round.png"
+          done
 
-    - name: Configure Signing & Version in build.gradle
-      run: |
-        cat >> android/app/build.gradle << EOF
+          # --- Verweis-Dateien fuer das adaptive Icon ---
+          mkdir -p "$RES/mipmap-anydpi-v26"
+          cat > "$RES/mipmap-anydpi-v26/ic_launcher.xml" <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@mipmap/ic_launcher_background"/>
+              <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
+          </adaptive-icon>
+          XML
+          cp "$RES/mipmap-anydpi-v26/ic_launcher.xml" "$RES/mipmap-anydpi-v26/ic_launcher_round.xml"
 
-        android.signingConfigs {
-            release {
-                storeFile file("release.keystore")
-                storePassword System.getenv("KEYSTORE_PASSWORD")
-                keyAlias System.getenv("KEY_ALIAS")
-                keyPassword System.getenv("KEY_PASSWORD")
-            }
-        }
-        android.buildTypes.release.signingConfig = android.signingConfigs.release
-        android.defaultConfig.versionCode = Integer.parseInt(System.getenv("VERSION_CODE") ?: "1")
-        android.defaultConfig.versionName = "1.0." + (System.getenv("VERSION_CODE") ?: "1")
-        EOF
+          echo "--- erzeugte Icon-Dateien ---"
+          find "$RES" -name 'ic_launcher*' | sort
 
-    - name: Build Signed Release AAB
-      env:
-        KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-        KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-        KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        VERSION_CODE: ${{ github.run_number }}
-      run: |
-        cd android
-        ./gradlew clean bundleRelease
+      - name: Doppelte Kotlin-Bibliotheken ausschliessen
+        run: |
+          cat >> android/app/build.gradle << 'EOF'
 
-    - name: Upload Release AAB
-      uses: actions/upload-artifact@v4
-      with:
-        name: MathWarrior-AAB-Release
-        path: android/app/build/outputs/bundle/release/app-release.aab
+          configurations.all {
+              exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk7'
+              exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk8'
+          }
+          EOF
 
-    - name: Remove Keystore File
-      if: always()
-      run: rm -f android/app/release.keystore
+      - name: Versionsnummer setzen
+        env:
+          VERSION_CODE: ${{ github.run_number }}
+        run: |
+          cat >> android/app/build.gradle << EOF
+
+          android.defaultConfig.versionCode = Integer.parseInt(System.getenv("VERSION_CODE") ?: "1")
+          android.defaultConfig.versionName = "${VERSION_BASE}." + (System.getenv("VERSION_CODE") ?: "1")
+          EOF
+
+      # ---------------------------------------------------------------------
+      #  Debug-APK: zum Testen auf dem eigenen Handy (nicht fuer den Play Store)
+      # ---------------------------------------------------------------------
+      - name: Debug-APK bauen
+        env:
+          VERSION_CODE: ${{ github.run_number }}
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Debug-APK hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: MathWarrior-APK-Debug
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+
+      # ---------------------------------------------------------------------
+      #  Signiertes AAB: nur wenn die Keystore-Secrets hinterlegt sind
+      # ---------------------------------------------------------------------
+      - name: Keystore entschluesseln
+        if: env.HAS_KEYSTORE == 'true'
+        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/app/release.keystore
+
+      - name: Signierung konfigurieren
+        if: env.HAS_KEYSTORE == 'true'
+        run: |
+          cat >> android/app/build.gradle << 'EOF'
+
+          android.signingConfigs {
+              release {
+                  storeFile file("release.keystore")
+                  storePassword System.getenv("KEYSTORE_PASSWORD")
+                  keyAlias System.getenv("KEY_ALIAS")
+                  keyPassword System.getenv("KEY_PASSWORD")
+              }
+          }
+          android.buildTypes.release.signingConfig = android.signingConfigs.release
+          EOF
+
+      - name: Signiertes AAB bauen
+        if: env.HAS_KEYSTORE == 'true'
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          VERSION_CODE: ${{ github.run_number }}
+        run: |
+          cd android
+          ./gradlew bundleRelease
+
+      - name: AAB hochladen
+        if: env.HAS_KEYSTORE == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: MathWarrior-AAB-Release
+          path: android/app/build/outputs/bundle/release/app-release.aab
+
+      - name: Keystore-Datei wieder entfernen
+        if: always()
+        run: rm -f android/app/release.keystore
+
+      - name: Hinweis, falls noch kein Keystore hinterlegt ist
+        if: env.HAS_KEYSTORE != 'true'
+        run: |
+          echo "::warning::Es wurde nur eine Debug-APK gebaut."
+          echo "Fuer den Play Store muessen die Secrets KEYSTORE_BASE64, KEYSTORE_PASSWORD,"
+          echo "KEY_ALIAS und KEY_PASSWORD im Repository hinterlegt sein."
