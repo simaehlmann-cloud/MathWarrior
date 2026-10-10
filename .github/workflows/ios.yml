@@ -1,0 +1,529 @@
+# =============================================================================
+#  MathWarrior - iOS-Build und Upload zu TestFlight (startet NUR per Klick)
+# =============================================================================
+#  Start: GitHub -> Actions -> "MathWarrior iOS (TestFlight)" -> "Run workflow"
+#
+#  Was hier passiert, in Kurzform:
+#   1. Pruefen, ob alle 5 Secrets da sind (sonst sofortiger Abbruch mit Hinweis)
+#   2. Web-Dateien nach www/ kopieren, Capacitor in festen Versionen installieren
+#   3. iOS-Projekt erzeugen (Capacitor 8, Swift Package Manager)
+#   4. Projekt einstellen: Versionsnummer, Hochformat auf dem iPhone,
+#      Export-Compliance, App-Icon, Startbildschirm, Signierung
+#   5. Zertifikat + Profil in einen Wegwerf-Schluesselbund laden und pruefen,
+#      ob beides zusammenpasst (klare Fehlermeldung statt kryptischem Xcode-Fehler)
+#   6. Archiv bauen, signierte IPA exportieren, zu App Store Connect hochladen
+#   7. Aufraeumen (Schluesselbund und API-Schluessel werden immer geloescht)
+#
+#  Benoetigte Repository-Secrets (Settings -> Secrets and variables -> Actions):
+#   BUILD_CERTIFICATE_BASE64        Apple-Distribution-Zertifikat (.p12) als Base64
+#   P12_PASSWORD                    Passwort der .p12-Datei
+#   BUILD_PROVISION_PROFILE_BASE64  App-Store-Profil fuer com.simon.mathwarrior als Base64
+#   APPSTORE_API_KEY_ID             Schluessel-ID des App-Store-Connect-API-Schluessels
+#   APPSTORE_ISSUER_ID              Issuer-ID (steht ueber der Schluesselliste)
+#   APPSTORE_API_PRIVATE_KEY        Inhalt der .p8-Datei (Klartext ODER Base64)
+# =============================================================================
+
+name: MathWarrior iOS (TestFlight)
+
+on:
+  workflow_dispatch:
+    inputs:
+      marketing_version:
+        description: 'Versionsnummer im App Store (z. B. 1.0 oder 1.1.0). Nur bei neuer Version erhoehen.'
+        required: true
+        default: '1.0'
+      upload:
+        description: 'Nach dem Bauen zu TestFlight hochladen?'
+        type: boolean
+        default: true
+
+# Nie zwei iOS-Laeufe gleichzeitig: sie wuerden sich bei der Build-Nummer in die Quere kommen.
+concurrency:
+  group: ios-testflight
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  ios:
+    runs-on: macos-26
+    timeout-minutes: 60
+
+    env:
+      APP_ID: com.simon.mathwarrior
+      MARKETING_VERSION: ${{ inputs.marketing_version }}
+      DO_UPLOAD: ${{ inputs.upload }}
+      # Build-Nummer: Laufnummer + Versuch (z. B. 7.1, beim "Re-run" 7.2).
+      # So ist jede Nummer einmalig - App Store Connect lehnt doppelte Nummern ab.
+      BUILD_NUMBER: ${{ github.run_number }}.${{ github.run_attempt }}
+      # Hintergrundfarbe des Startbildschirms = Randfarbe des App-Icons
+      SPLASH_BG: '0A0B0C'
+
+    steps:
+      - name: Code auschecken
+        uses: actions/checkout@v4
+
+      # -----------------------------------------------------------------------
+      #  Vorab-Pruefungen: lieber nach 10 Sekunden scheitern als nach 10 Minuten
+      # -----------------------------------------------------------------------
+      - name: Eingaben und Secrets pruefen
+        env:
+          S1: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          S2: ${{ secrets.P12_PASSWORD }}
+          S3: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
+          S4: ${{ secrets.APPSTORE_API_KEY_ID }}
+          S5: ${{ secrets.APPSTORE_ISSUER_ID }}
+          S6: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          FEHLT=""
+          [ -n "${S1:-}" ] || FEHLT="$FEHLT BUILD_CERTIFICATE_BASE64"
+          [ -n "${S2:-}" ] || FEHLT="$FEHLT P12_PASSWORD"
+          [ -n "${S3:-}" ] || FEHLT="$FEHLT BUILD_PROVISION_PROFILE_BASE64"
+          if [ "$DO_UPLOAD" = "true" ]; then
+            [ -n "${S4:-}" ] || FEHLT="$FEHLT APPSTORE_API_KEY_ID"
+            [ -n "${S5:-}" ] || FEHLT="$FEHLT APPSTORE_ISSUER_ID"
+            [ -n "${S6:-}" ] || FEHLT="$FEHLT APPSTORE_API_PRIVATE_KEY"
+          fi
+          if [ -n "$FEHLT" ]; then
+            echo "::error::Folgende Repository-Secrets fehlen:$FEHLT"
+            exit 1
+          fi
+          # Versionsnummer: 1 bis 3 Zahlen mit Punkt getrennt (Apple-Vorgabe)
+          if ! printf '%s' "$MARKETING_VERSION" | grep -Eq '^[0-9]{1,4}(\.[0-9]{1,4}){0,2}$'; then
+            echo "::error::Ungueltige Versionsnummer '$MARKETING_VERSION'. Erlaubt: z. B. 1.0 oder 1.2.3"
+            exit 1
+          fi
+          echo "Version $MARKETING_VERSION, Build $BUILD_NUMBER, Upload: $DO_UPLOAD"
+
+      # Apple nimmt seit 28.04.2026 nur noch Builds mit Xcode 26 (iOS-26-SDK) an.
+      # Wir nehmen die neueste installierte Xcode-26-Version.
+      - name: Xcode 26 auswaehlen
+        run: |
+          set -euo pipefail
+          # Beta-/RC-Versionen ausschliessen: damit gebaute Apps lehnt Apple beim Upload ab.
+          XC="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -viE 'beta|_rc|release_candidate' | sort -V | tail -n 1 || true)"
+          if [ -z "$XC" ]; then
+            echo "::error::Auf diesem Runner ist kein (finales) Xcode 26 installiert."
+            ls -d /Applications/Xcode*.app || true
+            exit 1
+          fi
+          sudo xcode-select -s "$XC/Contents/Developer"
+          xcodebuild -version
+
+      # Capacitor 8 setzt Node 22 voraus.
+      - name: Node.js 22 einrichten
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Web-Dateien nach www kopieren
+        run: |
+          set -e
+          mkdir -p www
+          cp index.html manifest.json www/
+          cp icon-192.png icon-512.png icon-maskable-512.png www/
+          [ -f datenschutz.html ] && cp datenschutz.html www/ || true
+          echo "--- Inhalt von www ---"
+          ls -la www
+
+      - name: Capacitor installieren
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          # Falls @capacitor/ios (noch) nicht in package.json steht: in GENAU der
+          # Version nachinstallieren, die auch @capacitor/core hat. Unterschiedliche
+          # Versionen von core und ios fuehren sonst zu einer weissen App.
+          if [ ! -d node_modules/@capacitor/ios ]; then
+            CORE_VER="$(node -p "require('@capacitor/core/package.json').version")"
+            echo "::warning::@capacitor/ios fehlt in package.json - installiere $CORE_VER nach."
+            npm install --no-save --no-audit --no-fund "@capacitor/ios@$CORE_VER"
+          fi
+          node -p "'core ' + require('@capacitor/core/package.json').version + ' / ios ' + require('@capacitor/ios/package.json').version"
+
+      # Kein "cap init": capacitor.config.json liegt im Repository und wird verwendet.
+      - name: iOS-Projekt erzeugen
+        run: |
+          set -euo pipefail
+          npx cap add ios
+          test -d ios/App/App.xcodeproj || { echo "::error::ios/App/App.xcodeproj wurde nicht erzeugt"; exit 1; }
+          test -f ios/App/App/public/index.html || { echo "::error::index.html fehlt im iOS-Projekt"; exit 1; }
+
+      # -----------------------------------------------------------------------
+      #  Zertifikat und Profil: in einen eigenen, temporaeren Schluesselbund
+      # -----------------------------------------------------------------------
+      - name: Zertifikat und Profil installieren
+        env:
+          CERT_B64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          PROFILE_B64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
+        run: |
+          set -euo pipefail
+          SIGN="$RUNNER_TEMP/signing"
+          mkdir -p "$SIGN"
+          # Zeilenumbrueche/Leerzeichen aus dem Base64-Text entfernen (passiert beim Kopieren schnell)
+          printf '%s' "$CERT_B64"    | tr -d ' \r\n\t' | base64 --decode > "$SIGN/cert.p12" \
+            || { echo "::error::BUILD_CERTIFICATE_BASE64 ist kein gueltiger Base64-Text."; exit 1; }
+          printf '%s' "$PROFILE_B64" | tr -d ' \r\n\t' | base64 --decode > "$SIGN/profile.mobileprovision" \
+            || { echo "::error::BUILD_PROVISION_PROFILE_BASE64 ist kein gueltiger Base64-Text."; exit 1; }
+
+          KEYCHAIN="$RUNNER_TEMP/app-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
+          echo "::add-mask::$KEYCHAIN_PASSWORD"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+
+          # .p12-Dateien, die mit OpenSSL 3 (z. B. unter Windows) erzeugt wurden, nutzen ein
+          # Verschluesselungsverfahren, das der macOS-Schluesselbund nicht immer lesen kann.
+          # Dann wird die Datei einmal in das klassische Format umgepackt.
+          if ! security import "$SIGN/cert.p12" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"; then
+            echo "::warning::Direkter Import fehlgeschlagen - versuche Umpacken in das klassische .p12-Format."
+            OSSL=""
+            for C in "$(brew --prefix openssl@3 2>/dev/null)/bin/openssl" /opt/homebrew/opt/openssl@3/bin/openssl /usr/local/opt/openssl@3/bin/openssl; do
+              [ -x "$C" ] && { OSSL="$C"; break; }
+            done
+            if [ -z "$OSSL" ]; then
+              echo "::error::Zertifikat konnte nicht importiert werden (Passwort falsch oder Datei beschaedigt)."
+              exit 1
+            fi
+            export P12_PASSWORD
+            "$OSSL" pkcs12 -in "$SIGN/cert.p12" -passin env:P12_PASSWORD -nodes -out "$SIGN/cert.pem" \
+              || { echo "::error::Zertifikat nicht lesbar - ist P12_PASSWORD richtig?"; exit 1; }
+            "$OSSL" pkcs12 -export -legacy -in "$SIGN/cert.pem" -out "$SIGN/cert-legacy.p12" -passout env:P12_PASSWORD
+            rm -f "$SIGN/cert.pem"
+            security import "$SIGN/cert-legacy.p12" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          fi
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" > /dev/null
+          # Unseren Schluesselbund zusaetzlich zu den vorhandenen in die Suchliste aufnehmen
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+
+          # Profil entschluesseln und auslesen
+          security cms -D -i "$SIGN/profile.mobileprovision" > "$SIGN/profile.plist" 2>/dev/null \
+            || { echo "::error::BUILD_PROVISION_PROFILE_BASE64 ist kein gueltiges Provisioning-Profil."; exit 1; }
+
+          # Apple-Zwischenzertifikat (WWDR G3) dazulegen. Fehlt es, gilt die Identitaet als
+          # "nicht vertrauenswuerdig" und das Signieren scheitert mit errSecInternalComponent.
+          if curl -fsSL --retry 3 -o "$SIGN/AppleWWDRCAG3.cer" https://www.apple.com/certificateauthority/AppleWWDRCAG3.cer; then
+            security import "$SIGN/AppleWWDRCAG3.cer" -k "$KEYCHAIN" -A > /dev/null 2>&1 || true
+          else
+            echo "::warning::Apple-Zwischenzertifikat konnte nicht geladen werden - versuche es ohne."
+          fi
+
+          # Signier-Identitaeten (SHA-1 + Name) fuer den Abgleich mit dem Profil sammeln.
+          # Bewusst OHNE -v: auch noch nicht als gueltig erkannte Identitaeten sollen auftauchen.
+          security find-identity -p codesigning "$KEYCHAIN" | tee "$SIGN/identities.txt"
+
+          python3 - "$SIGN/profile.plist" "$SIGN/identities.txt" <<'PY'
+          import datetime, hashlib, os, plistlib, re, sys
+          prof = plistlib.load(open(sys.argv[1], "rb"))
+          app_id = os.environ["APP_ID"]
+          team = prof["TeamIdentifier"][0]
+          ent = prof.get("Entitlements", {})
+          fehler = []
+          if ent.get("application-identifier") != f"{team}.{app_id}":
+              fehler.append(f"Profil gehoert zu '{ent.get('application-identifier')}', erwartet '{team}.{app_id}'.")
+          if prof.get("ProvisionedDevices") or prof.get("ProvisionsAllDevices"):
+              fehler.append("Das ist ein Development-/Ad-Hoc-Profil. Benoetigt wird ein 'App Store Connect'-Profil.")
+          if ent.get("get-task-allow"):
+              fehler.append("Profil erlaubt Debugging (get-task-allow) - das ist kein App-Store-Profil.")
+          exp = prof["ExpirationDate"]
+          if exp.tzinfo is None:
+              exp = exp.replace(tzinfo=datetime.timezone.utc)
+          if exp < datetime.datetime.now(datetime.timezone.utc):
+              fehler.append(f"Profil ist abgelaufen ({exp:%d.%m.%Y}).")
+          # Passt das importierte Zertifikat zum Profil?
+          prof_sha1 = {hashlib.sha1(c).hexdigest().upper() for c in prof.get("DeveloperCertificates", [])}
+          idents = re.findall(r'\)\s+([0-9A-F]{40})\s+"([^"]+)"',
+                              open(sys.argv[2], encoding="utf-8", errors="replace").read())
+          passend = [(h, n) for h, n in idents if h in prof_sha1]
+          art = ""
+          if not idents:
+              fehler.append("Im .p12 wurde keine Signier-Identitaet gefunden (privater Schluessel fehlt? "
+                            "Beim Export aus der Schluesselbundverwaltung Zertifikat UND Schluessel waehlen).")
+          elif not passend:
+              fehler.append("Das Zertifikat aus BUILD_CERTIFICATE_BASE64 ist NICHT in diesem Profil enthalten. "
+                            "Profil im Developer-Portal mit genau diesem Distribution-Zertifikat neu erstellen.")
+          else:
+              name = passend[0][1]
+              # Allgemeiner Identitaetsname, wie Xcode ihn erwartet
+              for kandidat in ("Apple Distribution", "iPhone Distribution"):
+                  if name.startswith(kandidat):
+                      art = kandidat
+              if not art:
+                  fehler.append(f"'{name}' ist kein Distribution-Zertifikat. Benoetigt: 'Apple Distribution'.")
+          if fehler:
+              for f in fehler:
+                  print(f"::error::{f}")
+              sys.exit(1)
+          print(f"Profil '{prof['Name']}' ({prof['UUID']}), Team {team}, gueltig bis {exp:%d.%m.%Y}")
+          print(f"Zertifikat: {passend[0][1]}")
+          with open(os.environ["GITHUB_ENV"], "a") as env:
+              env.write(f"TEAM_ID={team}\n")
+              env.write(f"PROFILE_UUID={prof['UUID']}\n")
+              env.write(f"SIGN_IDENTITY={art}\n")
+          PY
+
+          # Profil dort ablegen, wo Xcode es sucht (Xcode 16+ und aeltere Orte)
+          UUID="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$SIGN/profile.plist")"
+          for D in "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles" "$HOME/Library/MobileDevice/Provisioning Profiles"; do
+            mkdir -p "$D"
+            cp "$SIGN/profile.mobileprovision" "$D/$UUID.mobileprovision"
+          done
+          rm -f "$SIGN/cert.p12" "$SIGN/cert-legacy.p12"
+          echo "KEYCHAIN_PATH=$KEYCHAIN" >> "$GITHUB_ENV"
+
+      # -----------------------------------------------------------------------
+      #  Projekt-Einstellungen (Info.plist + Signierung nur fuer das App-Ziel)
+      # -----------------------------------------------------------------------
+      - name: iOS-Projekt einstellen
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, plistlib, re, sys
+
+          # ---------- Info.plist ----------
+          p = "ios/App/App/Info.plist"
+          with open(p, "rb") as f:
+              info = plistlib.load(f)
+          # iPhone: nur Hochformat (das Spiel ist dafuer gebaut)
+          info["UISupportedInterfaceOrientations"] = ["UIInterfaceOrientationPortrait"]
+          # iPad: alle vier Richtungen. Seit iPadOS 26 verlangt Apple das fuer
+          # iPad-Apps (UIRequiresFullScreen ist abgekuendigt). Im Querformat zeigt
+          # MathWarrior die Spielflaeche mittig - das sieht sauber aus.
+          info["UISupportedInterfaceOrientations~ipad"] = [
+              "UIInterfaceOrientationPortrait", "UIInterfaceOrientationPortraitUpsideDown",
+              "UIInterfaceOrientationLandscapeLeft", "UIInterfaceOrientationLandscapeRight"]
+          # Vorlage verlangt noch "armv7" (32 Bit) - alle Geraete mit iOS 15+ sind arm64
+          info["UIRequiredDeviceCapabilities"] = ["arm64"]
+          # Keine eigene Verschluesselung -> Export-Compliance-Frage entfaellt bei jedem Build
+          info["ITSAppUsesNonExemptEncryption"] = False
+          # Hauptsprache Deutsch (App Store zeigt sonst "Englisch" als Sprache)
+          info["CFBundleDevelopmentRegion"] = "de"
+          info["CFBundleLocalizations"] = ["de", "en"]
+          info["CFBundleDisplayName"] = "MathWarrior"
+          with open(p, "wb") as f:
+              plistlib.dump(info, f)
+
+          # ---------- project.pbxproj ----------
+          pp = "ios/App/App.xcodeproj/project.pbxproj"
+          src = open(pp, encoding="utf-8").read()
+
+          def q(v):
+              return '"' + v.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+          def setze(block, key, value):
+              zeile = f"\t\t\t\t{key} = {value};"
+              muster = re.compile(r"^\t\t\t\t" + re.escape(key) + r" = .*?;$", re.M)
+              if muster.search(block):
+                  return muster.sub(lambda m: zeile, block, count=1)
+              return block.replace("buildSettings = {\n", "buildSettings = {\n" + zeile + "\n", 1)
+
+          bloecke = list(re.finditer(
+              r"\t\t[0-9A-F]{24} /\* (Debug|Release) \*/ = \{\n\t\t\tisa = XCBuildConfiguration;.*?\n\t\t\};",
+              src, re.S))
+          app = [b for b in bloecke if "INFOPLIST_FILE = App/Info.plist;" in b.group(0)]
+          namen = sorted(b.group(1) for b in app)
+          if namen != ["Debug", "Release"]:
+              print(f"::error::App-Ziel im Xcode-Projekt nicht eindeutig gefunden: {namen}")
+              sys.exit(1)
+
+          for b in sorted(app, key=lambda b: b.start(), reverse=True):
+              blk = b.group(0)
+              blk = setze(blk, "MARKETING_VERSION", q(os.environ["MARKETING_VERSION"]))
+              blk = setze(blk, "CURRENT_PROJECT_VERSION", q(os.environ["BUILD_NUMBER"]))
+              if b.group(1) == "Release":
+                  blk = setze(blk, "CODE_SIGN_STYLE", "Manual")
+                  blk = setze(blk, "DEVELOPMENT_TEAM", q(os.environ["TEAM_ID"]))
+                  blk = setze(blk, "CODE_SIGN_IDENTITY", q(os.environ["SIGN_IDENTITY"]))
+                  blk = setze(blk, "PROVISIONING_PROFILE_SPECIFIER", q(os.environ["PROFILE_UUID"]))
+              src = src[:b.start()] + blk + src[b.end():]
+
+          open(pp, "w", encoding="utf-8").write(src)
+          print("Info.plist und project.pbxproj angepasst.")
+          PY
+          plutil -lint ios/App/App/Info.plist
+          plutil -lint ios/App/App.xcodeproj/project.pbxproj
+          echo "--- Signier-Einstellungen (Release) ---"
+          xcodebuild -project ios/App/App.xcodeproj -target App -configuration Release -showBuildSettings 2>/dev/null \
+            | grep -E '^\s+(CODE_SIGN_IDENTITY|CODE_SIGN_STYLE|DEVELOPMENT_TEAM|PROVISIONING_PROFILE_SPECIFIER|MARKETING_VERSION|CURRENT_PROJECT_VERSION|PRODUCT_BUNDLE_IDENTIFIER|TARGETED_DEVICE_FAMILY) =' || true
+
+      # Icon: genau EIN 1024er-PNG ohne Transparenz (sonst lehnt Apple den Upload ab).
+      # Startbildschirm: Ninja mittig auf dunklem Grund statt Capacitor-Platzhalter.
+      - name: App-Icon und Startbildschirm einbinden
+        run: |
+          set -euo pipefail
+          ICON_DIR=ios/App/App/Assets.xcassets/AppIcon.appiconset
+          SPLASH_DIR=ios/App/App/Assets.xcassets/Splash.imageset
+          TMP="$RUNNER_TEMP/img"; mkdir -p "$TMP"
+
+          # Alpha-Kanal sicher entfernen: ueber JPEG und zurueck nach PNG
+          sips -s format jpeg -s formatOptions 100 icon-source-1024.png --out "$TMP/icon.jpg" > /dev/null
+          sips -s format png -z 1024 1024 "$TMP/icon.jpg" --out "$ICON_DIR/AppIcon-512@2x.png" > /dev/null
+
+          # Splash: Icon auf 900 px, dann auf 2732 x 2732 mit Hintergrundfarbe auffuellen.
+          # (Auf dem iPhone wird links/rechts beschnitten - 900 px bleiben sicher sichtbar.)
+          sips -z 900 900 "$TMP/icon.jpg" --out "$TMP/splash-icon.jpg" > /dev/null
+          sips -p 2732 2732 --padColor "$SPLASH_BG" "$TMP/splash-icon.jpg" --out "$TMP/splash.jpg" > /dev/null
+          for F in splash-2732x2732.png splash-2732x2732-1.png splash-2732x2732-2.png; do
+            sips -s format png "$TMP/splash.jpg" --out "$SPLASH_DIR/$F" > /dev/null
+          done
+
+          # Kontrolle: Groessen und kein Alpha-Kanal
+          sips -g pixelWidth -g pixelHeight -g hasAlpha "$ICON_DIR/AppIcon-512@2x.png" "$SPLASH_DIR/splash-2732x2732.png"
+          if sips -g hasAlpha "$ICON_DIR/AppIcon-512@2x.png" | grep -q 'hasAlpha: yes'; then
+            echo "::error::App-Icon hat noch einen Alpha-Kanal."; exit 1
+          fi
+
+          # Hintergrund des Startbildschirms dunkel statt weiss (falls das Bild nicht ganz deckt)
+          LS=ios/App/App/Base.lproj/LaunchScreen.storyboard
+          R=$((16#${SPLASH_BG:0:2})); G=$((16#${SPLASH_BG:2:2})); B=$((16#${SPLASH_BG:4:2}))
+          python3 - "$LS" "$R" "$G" "$B" <<'PY'
+          import re, sys
+          path, r, g, b = sys.argv[1], *[int(x) / 255 for x in sys.argv[2:5]]
+          s = open(path, encoding="utf-8").read()
+          neu = (f'<color key="backgroundColor" red="{r:.4f}" green="{g:.4f}" blue="{b:.4f}" '
+                 f'alpha="1" colorSpace="custom" customColorSpace="sRGB"/>')
+          s, n = re.subn(r'<color key="backgroundColor" systemColor="systemBackgroundColor"/>', neu, s)
+          print(f"LaunchScreen: {n} Hintergrundfarbe(n) ersetzt")
+          open(path, "w", encoding="utf-8").write(s)
+          PY
+          xmllint --noout "$LS"
+
+      # -----------------------------------------------------------------------
+      #  Bauen
+      # -----------------------------------------------------------------------
+      - name: Archiv bauen
+        run: |
+          set -euo pipefail
+          xcodebuild -list -project ios/App/App.xcodeproj
+          xcodebuild archive \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN_PATH" \
+            2>&1 | tee "$RUNNER_TEMP/xcodebuild-archive.log" | grep -E '(error|warning: .*(sign|profile)|\*\* ARCHIVE)' || true
+          # tee/grep verschlucken den Exit-Code - deshalb Erfolg explizit pruefen
+          grep -q '\*\* ARCHIVE SUCCEEDED \*\*' "$RUNNER_TEMP/xcodebuild-archive.log" \
+            || { echo "::error::Archivieren fehlgeschlagen - siehe Log-Artefakt 'xcodebuild-logs'."; tail -n 60 "$RUNNER_TEMP/xcodebuild-archive.log"; exit 1; }
+
+      - name: Signierte IPA exportieren
+        run: |
+          set -euo pipefail
+          python3 - "$RUNNER_TEMP/ExportOptions.plist" export <<'PY'
+          import os, plistlib, sys
+          opts = {
+              "method": "app-store-connect",
+              "destination": sys.argv[2],
+              "signingStyle": "manual",
+              "teamID": os.environ["TEAM_ID"],
+              "signingCertificate": os.environ["SIGN_IDENTITY"],
+              "provisioningProfiles": {os.environ["APP_ID"]: os.environ["PROFILE_UUID"]},
+              "uploadSymbols": True,
+              "manageAppVersionAndBuildNumber": False,
+          }
+          with open(sys.argv[1], "wb") as f:
+              plistlib.dump(opts, f)
+          PY
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -exportPath "$RUNNER_TEMP/export" \
+            2>&1 | tee "$RUNNER_TEMP/xcodebuild-export.log" | tail -n 20
+          IPA="$(ls "$RUNNER_TEMP"/export/*.ipa 2>/dev/null | head -n 1 || true)"
+          [ -n "$IPA" ] || { echo "::error::Keine IPA erzeugt - siehe Log-Artefakt 'xcodebuild-logs'."; exit 1; }
+          cp "$IPA" "$RUNNER_TEMP/MathWarrior-$MARKETING_VERSION-$BUILD_NUMBER.ipa"
+          echo "IPA_PATH=$RUNNER_TEMP/MathWarrior-$MARKETING_VERSION-$BUILD_NUMBER.ipa" >> "$GITHUB_ENV"
+          ls -la "$RUNNER_TEMP/export"
+
+      - name: IPA als Artefakt speichern
+        uses: actions/upload-artifact@v4
+        with:
+          name: MathWarrior-iOS-${{ inputs.marketing_version }}-${{ github.run_number }}.${{ github.run_attempt }}
+          path: ${{ env.IPA_PATH }}
+          retention-days: 14
+
+      # -----------------------------------------------------------------------
+      #  Upload zu App Store Connect / TestFlight
+      # -----------------------------------------------------------------------
+      - name: Zu TestFlight hochladen
+        if: inputs.upload
+        env:
+          ASC_KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+          ASC_KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          # Leerzeichen/Zeilenumbrueche um ID-Werte entfernen (Kopierfehler abfangen)
+          ASC_KEY_ID="$(printf '%s' "$ASC_KEY_ID" | tr -d ' \r\n\t')"
+          ASC_ISSUER_ID="$(printf '%s' "$ASC_ISSUER_ID" | tr -d ' \r\n\t')"
+          KEY_DIR="$HOME/.appstoreconnect/private_keys"
+          mkdir -p "$KEY_DIR"
+          KEY_FILE="$KEY_DIR/AuthKey_${ASC_KEY_ID}.p8"
+          # Der Schluessel darf als Klartext (-----BEGIN PRIVATE KEY-----) oder Base64 hinterlegt sein
+          if printf '%s' "$ASC_KEY" | grep -q 'BEGIN PRIVATE KEY'; then
+            printf '%s\n' "$ASC_KEY" | tr -d '\r' > "$KEY_FILE"
+          else
+            printf '%s' "$ASC_KEY" | tr -d ' \r\n\t' | base64 --decode > "$KEY_FILE"
+          fi
+          grep -q 'BEGIN PRIVATE KEY' "$KEY_FILE" || { echo "::error::APPSTORE_API_PRIVATE_KEY ist keine gueltige .p8-Datei."; exit 1; }
+          chmod 600 "$KEY_FILE"
+
+          # Weg 1: Upload direkt durch Xcode (gleicher Weg wie "Distribute App" in Xcode)
+          python3 - "$RUNNER_TEMP/ExportOptions.plist" "$RUNNER_TEMP/ExportOptions-upload.plist" <<'PY'
+          import plistlib, sys
+          with open(sys.argv[1], "rb") as f:
+              opts = plistlib.load(f)
+          opts["destination"] = "upload"
+          with open(sys.argv[2], "wb") as f:
+              plistlib.dump(opts, f)
+          PY
+          if xcodebuild -exportArchive \
+              -archivePath "$RUNNER_TEMP/App.xcarchive" \
+              -exportOptionsPlist "$RUNNER_TEMP/ExportOptions-upload.plist" \
+              -exportPath "$RUNNER_TEMP/upload" \
+              -allowProvisioningUpdates \
+              -authenticationKeyPath "$KEY_FILE" \
+              -authenticationKeyID "$ASC_KEY_ID" \
+              -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+              > "$RUNNER_TEMP/xcodebuild-upload.log" 2>&1; then
+            tail -n 15 "$RUNNER_TEMP/xcodebuild-upload.log"
+            echo "Upload ueber xcodebuild erfolgreich."
+          else
+            tail -n 40 "$RUNNER_TEMP/xcodebuild-upload.log"
+            # Ist der Build trotz Fehlercode schon angekommen, darf altool ihn nicht ein zweites
+            # Mal schicken (Apple meldet dann "bereits vorhanden" und der Lauf waere rot).
+            if grep -qiE 'Upload succeeded|Uploaded package|EXPORT SUCCEEDED' "$RUNNER_TEMP/xcodebuild-upload.log"; then
+              echo "::warning::xcodebuild meldet einen Fehler, der Upload selbst war aber erfolgreich."
+            else
+              # Weg 2: altool als Rueckfallebene (liest den Schluessel aus ~/.appstoreconnect/private_keys)
+              echo "::warning::Upload ueber xcodebuild fehlgeschlagen - zweiter Versuch mit altool."
+              xcrun altool --upload-app -f "$IPA_PATH" -t ios \
+                --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
+            fi
+          fi
+          echo "### Build $MARKETING_VERSION ($BUILD_NUMBER) ist hochgeladen" >> "$GITHUB_STEP_SUMMARY"
+          echo "Apple verarbeitet den Build jetzt (meist 5-30 Minuten). Danach erscheint er in App Store Connect unter TestFlight." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build-Logs speichern (nur bei Fehler)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-logs
+          path: ${{ runner.temp }}/xcodebuild-*.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      # -----------------------------------------------------------------------
+      #  Aufraeumen - laeuft IMMER, auch nach Fehlern
+      # -----------------------------------------------------------------------
+      - name: Schluesselbund und Schluessel entfernen
+        if: always()
+        run: |
+          [ -n "${KEYCHAIN_PATH:-}" ] && security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
+          rm -rf "$HOME/.appstoreconnect" "$RUNNER_TEMP/signing" || true
+          rm -f "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/"*.mobileprovision \
+                "$HOME/Library/MobileDevice/Provisioning Profiles/"*.mobileprovision 2>/dev/null || true
