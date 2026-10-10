@@ -11,7 +11,9 @@
         /* =========================================
            BASIS-STYLING
         ========================================= */
-        * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
+        * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
+        /* iOS: verhindert, dass sich die ganze Spielflaeche beim Wischen wie ein Gummiband verschieben laesst */
+        html, body { overscroll-behavior: none; }
         body { margin: 0; padding: 0; background-color: #111; color: white; display: flex; justify-content: center; align-items: center; height: 100svh; overflow: hidden; }
         /* Höhe der System-Statusleiste (Uhr/Akku) und der Navigationsleiste unten.
            Werte kommen ab Capacitor 8 direkt vom System - kein Raten mehr nötig. */
@@ -24,7 +26,7 @@
         /* Der schwarze obere Rand hält den kompletten Spielinhalt aus der Statusleiste heraus.
            Als BORDER (nicht padding), weil absolut positionierte Elemente wie die obere
            Leiste mit dem Pause-Button sonst trotzdem unter der Statusleiste liegen würden. */
-        #game-container { width: 100%; max-width: 600px; height: 100svh; max-height: 850px; background: #222; position: relative; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border-top: var(--safe-top) solid #000; border-bottom: var(--safe-bottom) solid #000; }
+        #game-container { width: 100%; max-width: 600px; height: 100svh; max-height: calc(850px + var(--safe-top) + var(--safe-bottom)); background: #222; position: relative; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border-top: var(--safe-top) solid #000; border-bottom: var(--safe-bottom) solid #000; }
         
         /* =========================================
            SCREENS & OVERLAYS
@@ -747,8 +749,10 @@
     ========================================= */
     const PARENT_URL = 'https://simaehlmann-cloud.github.io/MathWarrior/eltern.html';
     let pgAnswer = 0;
+    let pgTargetUrl = PARENT_URL; // Ziel, das nach richtiger Antwort geoeffnet wird
 
-    function openParentGate() {
+    function openParentGate(targetUrl) {
+        pgTargetUrl = (typeof targetUrl === 'string' && targetUrl) ? targetUrl : PARENT_URL;
         // Zweistellig mal zweistellig: fuer Klasse 1-4 sicher nicht im Kopf loesbar
         const a = 12 + Math.floor(Math.random() * 38);   // 12 bis 49
         const b = 13 + Math.floor(Math.random() * 37);   // 13 bis 49
@@ -757,8 +761,8 @@
         const en = (currentLang === 'en');
         document.getElementById('pg-title').textContent = en ? 'For Parents' : 'Für Eltern';
         document.getElementById('pg-text').textContent = en
-            ? 'This area is intended for adults. Please solve the task to continue. The link opens in your browser.'
-            : 'Dieser Bereich ist für Erwachsene gedacht. Bitte lösen Sie die Aufgabe, um fortzufahren. Der Verweis öffnet den Browser.';
+            ? 'This area is intended for adults. Please solve the task to continue. The link leads outside the app.'
+            : 'Dieser Bereich ist für Erwachsene gedacht. Bitte lösen Sie die Aufgabe, um fortzufahren. Der Verweis führt aus der App heraus.';
         document.getElementById('pg-ok-label').textContent = en ? 'Continue' : 'Weiter';
         document.getElementById('pg-cancel-label').textContent = en ? 'Cancel' : 'Abbrechen';
         document.getElementById('pg-task').textContent = a + ' × ' + b + ' = ?';
@@ -776,8 +780,15 @@
 
         if (raw !== '' && Number.isFinite(val) && val === pgAnswer) {
             closeParentGate();
-            // oeffnet den System-Browser (kein allowNavigation in capacitor.config.json)
-            try { window.open(PARENT_URL, '_blank'); } catch(e) {}
+            const ziel = pgTargetUrl || PARENT_URL;
+            pgTargetUrl = PARENT_URL;
+            if (ziel.indexOf('mailto:') === 0) {
+                // E-Mail: wie bisher ueber normale Navigation -> Mail-App
+                try { window.location.href = ziel; } catch(e) {}
+            } else {
+                // oeffnet den System-Browser (kein allowNavigation in capacitor.config.json)
+                try { window.open(ziel, '_blank'); } catch(e) {}
+            }
             return;
         }
         err.textContent = en
@@ -789,6 +800,18 @@
     function closeParentGate() {
         document.getElementById('parent-gate-overlay').style.display = 'none';
     }
+
+    // Jeder Link, der aus der App herausfuehrt (http/https/mailto), laeuft ueber die Sperre.
+    // Die Anschrift bleibt im Info-Fenster weiterhin direkt lesbar (Anbieterkennzeichnung).
+    document.addEventListener('click', function(ev) {
+        const a = ev.target && ev.target.closest ? ev.target.closest('a[href]') : null;
+        if (!a) return;
+        const href = a.getAttribute('href') || '';
+        if (/^(https?:|mailto:)/i.test(href)) {
+            ev.preventDefault();
+            openParentGate(href);
+        }
+    }, true);
 
     function openAboutOverlay() {
         document.getElementById('info-content-de').style.display = currentLang === 'de' ? 'block' : 'none';
@@ -1006,7 +1029,24 @@
     // (28px / 32px) sind damit ersatzlos entfallen - das Fenster rückt sich auf jedem Gerät
     // selbst korrekt ein. Im Browser greift env(safe-area-inset-*) als Rückfallebene.
 
+    // TABLETS: Die Spielflaeche ist fuer Handys gebaut (max. 600 x 850 Punkte). Auf dem
+    // iPad blieb sie deshalb eine kleine Spalte mit viel Schwarz drumherum. Jetzt wird
+    // sie auf grossen Bildschirmen proportional vergroessert. Handys: unveraendert.
+    function fitGameToScreen() {
+        const c = document.getElementById('game-container');
+        if (!c) return;
+        c.style.zoom = '';
+        const cs = getComputedStyle(c);
+        const safe = (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
+        const s = Math.min(window.innerWidth / 600, window.innerHeight / (850 + safe));
+        if (s >= 1.15) c.style.zoom = String(Math.floor(s * 100) / 100);
+    }
+    window.addEventListener('resize', fitGameToScreen);
+    window.addEventListener('orientationchange', () => setTimeout(fitGameToScreen, 250));
+    document.addEventListener('DOMContentLoaded', fitGameToScreen);
+
     window.onload = function() { 
+        fitGameToScreen();
         loadAllData(); 
         currentLang = appData.language || 'de';
         document.getElementById('flag-de').classList.toggle('active-flag', currentLang === 'de');
@@ -1049,8 +1089,8 @@
         // FIX: Im Hintergrund (Home-Button, Bildschirm aus, App gewechselt) darf der Ton
         // NICHT wieder aufgeweckt werden. Vorher konnte ein noch laufender Timer im
         // Hintergrund einen Sound auslösen -> initAudio() hat die Musik wieder gestartet.
-        if (audioCtx.state === 'suspended' && !appInBackground && !document.hidden) {
-            audioCtx.resume(); 
+        if ((audioCtx.state === 'suspended' || audioCtx.state === 'interrupted') && !appInBackground && !document.hidden) {
+            try { const pr = audioCtx.resume(); if (pr && pr.catch) pr.catch(function(){}); } catch(e) {}
         }
     }
 
@@ -1251,6 +1291,9 @@
     ['touchstart', 'pointerdown', 'keydown'].forEach(evt => {
         document.addEventListener(evt, () => {
             if (appInBackground && !document.hidden) resumeAudioForForeground();
+            else if (audioCtx && !isMuted && !document.hidden && audioCtx.state !== 'running' && audioCtx.state !== 'closed') {
+                try { const pr = audioCtx.resume(); if (pr && pr.catch) pr.catch(function(){}); } catch(e) {}
+            }
         }, true);
     });
 
@@ -1736,8 +1779,9 @@
         document.getElementById('shield-bubble').style.display = shieldActive ? 'block' : 'none'; 
         updateUI(); 
         setupEnvironment(true); 
-        spawnEnemy(); 
+        // FIX: Spielbildschirm ZUERST sichtbar machen, damit spawnEnemy() den Zeitbalken startet
         showScreen('game-screen'); 
+        spawnEnemy(); 
     }
 
     function updateUI() {
